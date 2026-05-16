@@ -1,14 +1,12 @@
 # Convenience targets. See PROJECT.md section 2 for which targets each phase relies on.
 #
-# RUNNER prefixes every tool invocation. Defaults to `uv run` for local dev
-# (uv manages .venv from pyproject). On Colab/Kaggle, where uv is not installed
-# (PROJECT.md §3), call with `RUNNER=` to use the active environment directly:
-#
-#     make eval-smoke RUNNER=
-#
-# UV is kept as a separate override for `make install` which is uv-specific.
+# RUNNER prefixes every tool invocation. Auto-detected from PATH:
+#   - `uv` on PATH    -> `uv run`   (local dev: uv manages .venv from pyproject)
+#   - `uv` not found  -> empty       (Colab/Kaggle: use the active environment
+#                                     directly; PROJECT.md §3 commits to this)
+# Override explicitly with e.g. `make test RUNNER=python3` if needed.
 UV     ?= uv
-RUNNER ?= uv run
+RUNNER ?= $(if $(shell command -v uv 2>/dev/null),uv run,)
 
 .PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke clean
 
