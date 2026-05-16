@@ -1,12 +1,21 @@
 # Convenience targets. See PROJECT.md section 2 for which targets each phase relies on.
 #
-# RUNNER prefixes every tool invocation. Auto-detected from PATH:
-#   - `uv` on PATH    -> `uv run`   (local dev: uv manages .venv from pyproject)
-#   - `uv` not found  -> empty       (Colab/Kaggle: use the active environment
-#                                     directly; PROJECT.md §3 commits to this)
+# RUNNER prefixes every tool invocation. Auto-detected from two signals:
+#   - `uv` on PATH      (else: no uv available)
+#   - `.venv` in cwd    (else: not a uv-managed project root, e.g. fresh Colab
+#                        clone where `pip install -e .[eval]` populates system
+#                        Python without ever creating `.venv`)
+# Both true  -> `uv run`   (local dev)
+# Either false -> empty    (Colab/Kaggle/CI — use the active environment)
+#
+# Why both? Colab ships `uv` on PATH (since ~2026-Q1 images), so a PATH-only
+# check picked `uv run` on Colab and starved the venv of the [eval] extra
+# installed via pip. Pairing with `.venv` distinguishes "uv-managed project"
+# from "uv just happens to be installed."
+#
 # Override explicitly with e.g. `make test RUNNER=python3` if needed.
 UV     ?= uv
-RUNNER ?= $(if $(shell command -v uv 2>/dev/null),uv run,)
+RUNNER ?= $(if $(and $(shell command -v uv 2>/dev/null),$(wildcard .venv)),uv run,)
 
 .PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke clean
 
