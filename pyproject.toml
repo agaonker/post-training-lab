@@ -41,7 +41,10 @@ dependencies = [
 # (`pip install -e .[eval]`). lm-eval and the judge SDK live here, not in the
 # core deps, so a pure training environment stays lean.
 eval = [
-    "lm-eval>=0.4.11",
+    # The [ifeval] extra pulls langdetect, immutabledict, and nltk — IFEval's
+    # rule-based checkers import these at task-load time. Plain `lm-eval` won't
+    # ship them and the eval crashes mid-run.
+    "lm-eval[ifeval]>=0.4.11",
     "anthropic>=0.40",
 ]
 # NOTE on vLLM (fast GRPO rollouts, Phase 4): deliberately NOT a project extra.
