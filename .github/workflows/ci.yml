@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Newer pushes cancel in-progress runs on the same ref — no point burning CI
+# minutes on a commit that's already been superseded.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      # Only the [dev] extra is needed for lint + tests. lm-eval (in [eval]) is
+      # stubbed in the eval tests, so we skip its 1+GB of transitive deps in CI.
+      - name: Install
+        run: uv sync --extra dev
+
+      - name: Ruff
+        run: uv run ruff check src tests scripts
+
+      - name: Mypy
+        run: uv run mypy src/atlas
+
+      - name: Pytest
+        run: uv run pytest -m 'not slow'

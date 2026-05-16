@@ -1,0 +1,9 @@
+# Baseline: un-tuned Qwen2.5-0.5B-Instruct. Eval-only — no training blocks.
+# All model / eval / seed settings inherit from base.yaml.
+#
+# This file exists so Phase 0's baseline run has a config path of its own and
+# lives alongside the other experiment YAMLs. Every later phase config follows
+# the same pattern: inherit, add only what changes.
+
+output:
+  hub_repo: null

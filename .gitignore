@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment
+.venv/
+.env
+# NOTE: uv.lock IS committed (reproducible installs) — do not ignore it.
+
+# Training artifacts — adapters live on the HF Hub, not in git
+outputs/
+results/adapters/
+wandb/
+
+# Local model / dataset cache
+.cache/
+hf_cache/
+
+# Notebooks
+notebooks/scratch/
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store

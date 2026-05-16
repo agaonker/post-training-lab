@@ -1,0 +1,84 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "post-training-lab"
+version = "0.1.0"
+description = "A controlled, reproducible comparison of LLM post-training methods (SFT, DPO, KTO, RLHF/PPO, GRPO) on one small base model."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Ashish Gaonker" }]
+
+# Core stack needed for every training method and the shared plumbing.
+# Version floors follow PROJECT.md's intent but corrected to the May 2026
+# reality verified during planning (see the plan file's "Key correction" table):
+#   - trl had a major v1.0; pinned >=1.4,<2. trl 1.4.0 requires
+#     transformers>=4.56.2 with no upper bound — we match that floor and cap
+#     at <6 for safety; in practice this resolves to the latest 5.x.
+#   - bitsandbytes is CUDA-only — installed on Linux only so `uv sync` on the
+#     Mac never pulls a quantization library that can't run there.
+dependencies = [
+    "torch>=2.4",
+    "transformers>=4.56.2,<6",
+    "trl>=1.4,<2",
+    "peft>=0.13",
+    "datasets>=3",
+    "accelerate>=1",
+    "huggingface-hub>=0.25",
+    "bitsandbytes>=0.44; platform_system == 'Linux'",
+    "pydantic>=2",
+    "pyyaml>=6",
+    "wandb>=0.17",
+    "python-dotenv>=1",
+    "numpy>=1.26",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+# Evaluation + LLM-as-judge. PROJECT.md's Colab bootstrap installs this extra
+# (`pip install -e .[eval]`). lm-eval and the judge SDK live here, not in the
+# core deps, so a pure training environment stays lean.
+eval = [
+    "lm-eval>=0.4.11",
+    "anthropic>=0.40",
+]
+# NOTE on vLLM (fast GRPO rollouts, Phase 4): deliberately NOT a project extra.
+# vLLM has no macOS build and only ever runs on Modal (Linux + CUDA), so it is
+# installed in the Modal image instead — pinned there against the trl version in
+# use. Carrying it in pyproject would force the local resolver to satisfy a
+# package it can never install here (this caused a transformers version clash).
+dev = [
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pytest>=8",
+    "types-pyyaml",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/atlas"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+
+[tool.mypy]
+files = ["src/atlas"]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = true
+# Loose mode on purpose — this is a study repo, not production code.
+disallow_untyped_defs = false
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "slow: hits the network or runs training; deselect in CI with -m 'not slow'",
+]

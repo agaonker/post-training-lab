@@ -1,0 +1,37 @@
+# Shared defaults for every experiment. Each experiment config in this directory
+# is deep-merged over this file by atlas.utils.config.load_config.
+#
+# YAML float gotcha: always write floats with a decimal point before the exponent
+# (e.g. 2.0e-4, not 2e-4) — PyYAML parses the dot-less form as a *string*.
+
+model:
+  name: Qwen/Qwen2.5-0.5B-Instruct
+  # Pin to a commit SHA once confirmed, for reproducibility. null = latest.
+  revision: null
+  dtype: bfloat16
+
+quant:
+  load_in_4bit: true
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_compute_dtype: bfloat16
+  double_quant: true
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+seed: 42
+
+wandb:
+  project: post-training-lab
+  mode: online
+
+eval:
+  batch_size: auto
+  tasks:
+    mmlu:           {num_fewshot: 5, limit: 1000}
+    gsm8k:          {num_fewshot: 8}
+    truthfulqa_mc2: {num_fewshot: 0}
+    ifeval:         {num_fewshot: 0}
