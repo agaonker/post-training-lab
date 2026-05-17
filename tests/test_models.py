@@ -146,10 +146,15 @@ def test_load_base_omits_quant_kwarg_on_non_cuda(monkeypatch):
 
 
 def test_load_base_resolves_dtype(monkeypatch):
-    """cfg.model.dtype string is turned into a real torch.dtype."""
+    """cfg.model.dtype string is turned into a real torch.dtype.
+
+    Uses the post-4.56 ``dtype=`` kwarg; ``torch_dtype=`` is deprecated and
+    must not appear in the kwargs we pass to from_pretrained.
+    """
     import torch as _torch
 
     seen = _patch_loaders(monkeypatch, has_pad=True)
     cfg = _cfg(model={"name": "Qwen/Qwen2.5-0.5B-Instruct", "dtype": "float16"})
     base.load_base_model_and_tokenizer(cfg)
-    assert seen["model_kwargs"]["torch_dtype"] == _torch.float16
+    assert seen["model_kwargs"]["dtype"] == _torch.float16
+    assert "torch_dtype" not in seen["model_kwargs"]

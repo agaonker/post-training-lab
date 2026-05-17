@@ -86,7 +86,9 @@ def load_base_model_and_tokenizer(
     quant = _build_quant_config(cfg)
 
     model_kwargs: dict[str, Any] = {
-        "torch_dtype": dtype,
+        # `dtype=` is the post-transformers-4.56 spelling; `torch_dtype=` is the
+        # deprecated alias and triggers a runtime warning starting in 4.56.
+        "dtype": dtype,
         "device_map": "auto",
     }
     if cfg.model.revision:
