@@ -17,7 +17,7 @@
 UV     ?= uv
 RUNNER ?= $(if $(and $(shell command -v uv 2>/dev/null),$(wildcard .venv)),uv run,)
 
-.PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke clean
+.PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke sft sft-smoke clean
 
 help:
 	@echo "Targets:"
@@ -30,6 +30,8 @@ help:
 	@echo "  eval-baseline  full lm-eval on un-tuned Qwen2.5-0.5B — Phase 0 deliverable"
 	@echo "                 designed for Colab/GPU; slow on Mac CPU"
 	@echo "  eval-smoke     limit=10 per task; proves the harness wiring without compute"
+	@echo "  sft            Phase 1: full SFT run from configs/sft_qwen05b.yaml; pushes adapter to HF Hub"
+	@echo "  sft-smoke      50-step SFT smoke (no Hub push); proves the train wiring on free tier"
 
 install:
 	$(UV) sync --extra dev --extra eval
@@ -64,6 +66,21 @@ eval-smoke:
 	    --config configs/baseline.yaml \
 	    --name base_smoke --method none --limit 10 \
 	    --metrics-path results/metrics_smoke.json
+
+# Phase 1 deliverable: full SFT run on UltraChat-200k. Pushes the adapter to
+# the HF Hub repo defined in configs/sft_qwen05b.yaml's output.hub_repo.
+sft:
+	$(RUNNER) python -m atlas.train.sft \
+	    --config configs/sft_qwen05b.yaml
+
+# Local SFT smoke: 50 steps, no Hub push. Proves wiring on free tier per
+# PROJECT.md §5.4 — "never launch paid GPU on code you haven't run 50 steps
+# of on free tier." Runs on CPU; tiny in practice because each step is small.
+sft-smoke:
+	$(RUNNER) python -m atlas.train.sft \
+	    --config configs/sft_qwen05b.yaml \
+	    --max-steps 50 \
+	    --no-push-to-hub
 
 clean:
 	rm -rf .pytest_cache .ruff_cache .mypy_cache

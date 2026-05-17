@@ -1,0 +1,42 @@
+# Phase 1: SFT on Qwen2.5-0.5B-Instruct with QLoRA on UltraChat-200k.
+#
+# Inherits model / lora / quant / eval / seed from base.yaml; only adds the
+# Phase-1-specific blocks (dataset / train / output). cfg.train is a deliberate
+# passthrough — every key here flows verbatim to TRL's SFTConfig, so survival
+# of TRL version bumps is one YAML edit, not a code change.
+#
+# YAML float gotcha: always write 2.0e-4, not 2e-4 (PyYAML parses the dot-less
+# form as a string).
+
+dataset:
+  name: HuggingFaceH4/ultrachat_200k
+  split: train_sft
+  # Pin once a run is locked in to avoid silent upstream drift. null = latest.
+  revision: null
+  # 5k is the Phase 1 starting point per PROJECT.md §4.1 — small enough to
+  # iterate, large enough for SFT to actually move IFEval.
+  n_samples: 5000
+
+train:
+  # Run-scoped output dir — never the default outputs/run, which would collide
+  # with parallel experiments (the P2 footgun documented in TODOS.md).
+  output_dir: outputs/sft_qwen05b_v1
+  # QLoRA-standard lr; the LoRA rank=16 setup tolerates more aggressive lr
+  # than full fine-tuning would.
+  learning_rate: 2.0e-4
+  num_train_epochs: 1
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4  # effective batch = 16
+  warmup_ratio: 0.03
+  # Required on T4 to fit a 0.5B + 4-bit + LoRA + batch=4 inside 16GB.
+  gradient_checkpointing: true
+  logging_steps: 10
+  # Single save at end via trainer.save_model — no mid-run checkpoints for a
+  # ~1-epoch / ~80-step run.
+  save_strategy: "no"
+  report_to: wandb
+
+output:
+  # Adapter destination on HF Hub. Update to your namespace; the train script
+  # only pushes if this is set and --no-push-to-hub isn't passed.
+  hub_repo: agaonker/atlas-sft-qwen05b-v1

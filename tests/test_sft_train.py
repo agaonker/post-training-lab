@@ -8,10 +8,15 @@ mid-training.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from atlas.train import sft
-from atlas.utils.config import Config
+from atlas.utils.config import Config, load_config
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+CONFIGS = REPO_ROOT / "configs"
 
 
 def _cfg(**overrides) -> Config:
@@ -116,3 +121,25 @@ def test_build_train_config_handles_missing_train_block(monkeypatch):
     cfg = _cfg()
     sc = sft._build_train_config(cfg, max_steps_override=None)
     assert sc.kwargs == {}
+
+
+# --- configs/sft_qwen05b.yaml canary -------------------------------------------
+
+def test_sft_qwen05b_yaml_loads_and_merges():
+    """End-to-end load of the Phase 1 YAML — catches typos that would crash mid-run."""
+    cfg = load_config(CONFIGS / "sft_qwen05b.yaml")
+    # Inherited from base.yaml
+    assert cfg.model.name == "Qwen/Qwen2.5-0.5B-Instruct"
+    assert cfg.lora.r == 16
+    assert cfg.quant.load_in_4bit is True
+    # Phase-1-specific blocks
+    assert cfg.dataset is not None
+    assert cfg.dataset.name == "HuggingFaceH4/ultrachat_200k"
+    assert cfg.dataset.n_samples == 5000
+    assert cfg.train is not None
+    # The YAML float must be 2.0e-4 (parsed as float), not 2e-4 (parsed as str).
+    assert cfg.train.model_dump()["learning_rate"] == 2.0e-4
+    assert cfg.train.output_dir == "outputs/sft_qwen05b_v1"
+    # Reserved fields with `_` aren't passed through — sanity check the passthrough
+    # only forwards what the user wrote.
+    assert "gradient_checkpointing" in cfg.train.model_dump()
