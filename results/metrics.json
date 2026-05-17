@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "runs": [
+    {
+      "name": "base",
+      "method": "none",
+      "model": "Qwen/Qwen2.5-0.5B-Instruct",
+      "adapter": null,
+      "config_hash": "2a8b4c64",
+      "config_path": "configs/baseline.yaml",
+      "model_args": "pretrained=Qwen/Qwen2.5-0.5B-Instruct,dtype=float16",
+      "timestamp": "2026-05-17T08:28:50Z",
+      "metrics": {
+        "mmlu/sample_len": 13508.0,
+        "mmlu/acc,none": 0.47379330766952915,
+        "gsm8k/sample_len": 1319.0,
+        "gsm8k/exact_match,strict-match": 0.265352539802881,
+        "gsm8k/exact_match,flexible-extract": 0.33510235026535257,
+        "truthfulqa_mc2/sample_len": 817.0,
+        "truthfulqa_mc2/acc,none": 0.4184929764887259,
+        "ifeval/sample_len": 541.0,
+        "ifeval/prompt_level_strict_acc,none": 0.20147874306839186,
+        "ifeval/inst_level_strict_acc,none": 0.34652278177458035,
+        "ifeval/prompt_level_loose_acc,none": 0.2476894639556377,
+        "ifeval/inst_level_loose_acc,none": 0.38848920863309355
+      },
+      "extras": {}
+    }
+  ]
+}
