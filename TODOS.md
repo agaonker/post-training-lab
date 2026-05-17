@@ -94,6 +94,26 @@ copying a config.
 **Fix:** Either drop the default (make it required) or default to
 `outputs/${run_name}` (requires Pydantic interpolation or a post-validator).
 
+### P3 — Decide Modal vs Colab Pro before Phase 3 (with virtual card if Modal)
+**Where:** [PROJECT.md §5](PROJECT.md) compute strategy
+**Why:** Phase 3 PPO and Phase 4 GRPO need either Modal (vLLM-bound for GRPO
+per the 1C decision) or Colab Pro ($10/mo, accepts PayPal — no card-on-file).
+Modal has $30 free credit but requires a card; runaway-bill anxiety is a real
+constraint. Decision is reversible (sign up later) but the plumbing in
+[src/atlas/cloud/modal_train.py](src/atlas/cloud/modal_train.py) only makes
+sense if Modal wins.
+**Fix:** Before Phase 3 starts, pick one:
+- **Modal** — sign up with a Privacy.com virtual card capped at $30; set a
+  Modal dashboard spending limit ($10/mo to start); confirm every Modal
+  function has `timeout=`; confirm every train config has `max_steps`. Then
+  stand up `src/atlas/cloud/modal_train.py` per PROJECT.md §5.3.
+- **Colab Pro** — accept the ~2-3x throughput hit vs Modal A10G; lose Phase 4
+  GRPO with vLLM (drop to slower TRL-default rollouts); drop the
+  `src/atlas/cloud/` scaffold from the plan.
+- **Defer** — finish through Phase 2 on free tier; revisit when Phase 3
+  blocks. PROJECT.md §10 anti-goal "don't do Phase 7 before Phase 6"
+  generalizes: don't pay for compute before you need it.
+
 ---
 
 ## Add new TODOs here as they surface
