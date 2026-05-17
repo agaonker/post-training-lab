@@ -20,6 +20,10 @@ outputs/
 results/adapters/
 wandb/
 
+# Ephemeral partial-run files from a crashed eval; cleaned up on success.
+results/*.partial.json
+results/*.partial.json.tmp
+
 # Local model / dataset cache
 .cache/
 hf_cache/

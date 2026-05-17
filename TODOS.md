@@ -8,15 +8,12 @@ it would bite; **P3** = nice-to-have, schedule later.
 
 ## From the first baseline-eval run on Kaggle (2026-05-16)
 
-### P1 — Incremental persistence in the eval harness
-**Where:** [src/atlas/eval/harness.py:122-149](src/atlas/eval/harness.py#L122-L149)
-**Why:** `run_eval` runs all tasks in a loop and only calls `append_run` ONCE at the
-very end. The first baseline run took ~5h on Kaggle (P100/T4-class GPU) — if the
-kernel had died in IFEval (the last task), MMLU + GSM8K + TruthfulQA would all be
-lost. Four hours of compute, zero rows on disk.
-**Fix:** write a partial-run JSON after each task completes (e.g.
-`results/metrics.<run_name>.partial.json`), then promote to `metrics.json` once all
-tasks finish. Resume logic (below) consumes the same partial file.
+### ~~P1 — Incremental persistence in the eval harness~~ (DONE 2026-05-17)
+**Landed in:** [src/atlas/eval/harness.py](src/atlas/eval/harness.py) — `_partial_path`, `_write_partial`, `_load_partial`, and the modified `run_eval` loop.
+Per-task results are written to `results/metrics.<run_name>.partial.json` via
+atomic temp+rename after each task completes. The partial is cleaned up only on
+successful `append_run` — if `append_run` raises (e.g. schema mismatch), the
+partial sticks around for manual recovery.
 
 ### P1 — Wall-clock estimates in PROJECT.md and notebooks are wildly off
 **Where:** [PROJECT.md §6 Phase 0](PROJECT.md), [notebooks/colab/run_eval_baseline_colab.ipynb](notebooks/colab/run_eval_baseline_colab.ipynb) cell 15, [notebooks/kaggle/run_eval_baseline_kaggle.ipynb](notebooks/kaggle/run_eval_baseline_kaggle.ipynb) cell "Full baseline eval"
@@ -27,13 +24,13 @@ ever having actually run it.
 that GSM8K and IFEval are generation-bound and dominate. Also: this invalidates the
 Phase 4 GRPO budget envelope (§5.2) which assumed similar throughput — re-check.
 
-### P2 — Add `--resume` to the eval harness
-**Where:** [src/atlas/eval/harness.py](src/atlas/eval/harness.py), CLI in `main()`
-**Why:** With incremental persistence in place, a crashed run shouldn't have to
-re-do completed tasks. For Phase 4 GRPO (multi-hour) and Phase 6 (judge calls
-across 200 prompts × N methods) this becomes load-bearing.
-**Fix:** `--resume` flag reads the partial JSON, skips tasks already present in it,
-runs only the missing ones, finalizes.
+### ~~P2 — Add `--resume` to the eval harness~~ (DONE 2026-05-17)
+**Landed in:** [src/atlas/eval/harness.py](src/atlas/eval/harness.py) — resume is
+the default behavior of `run_eval` (`resume=True`); `main()` accepts `--no-resume`
+to force a clean re-run. The partial file is scoped by `--name` so a smoke run
+and a baseline run on the same `metrics_path` don't collide. A `config_hash`
+mismatch between the partial and the current config refuses to resume rather
+than silently mixing runs.
 
 ### P2 — Kaggle notebook should default to Save & Run All, not interactive
 **Where:** [notebooks/kaggle/run_eval_baseline_kaggle.ipynb](notebooks/kaggle/run_eval_baseline_kaggle.ipynb) intro markdown

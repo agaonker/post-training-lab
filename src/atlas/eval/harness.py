@@ -7,6 +7,12 @@ JSON schema — apples-to-apples by construction.
 lm-eval is imported lazily inside :func:`_build_lm` / :func:`_evaluate_one_task` so
 importing this module (e.g. in CI without the ``[eval]`` extra) stays cheap and
 tests can stub the heavy bits without ever loading model weights.
+
+Incremental persistence: results are written to a ``.<run_name>.partial.json``
+sibling of ``metrics.json`` after each task completes. A crash mid-run loses at
+most the in-flight task; a subsequent invocation with the same ``--name`` resumes
+from the partial and skips already-completed tasks. The partial is deleted once
+the run is finalized into ``metrics.json``.
 """
 
 from __future__ import annotations
@@ -100,6 +106,43 @@ def append_run(entry: dict[str, Any], metrics_path: Path = DEFAULT_METRICS_PATH)
     metrics_path.write_text(json.dumps(doc, indent=2) + "\n")
 
 
+def _partial_path(metrics_path: Path, run_name: str) -> Path:
+    """Sibling ``.<run_name>.partial.json`` next to the canonical metrics file.
+
+    Run-name-scoped so a smoke run and a baseline run on the same metrics path
+    don't collide. Deleted once the run is finalized into ``metrics.json``.
+    """
+    return metrics_path.parent / f"{metrics_path.stem}.{run_name}.partial.json"
+
+
+def _write_partial(path: Path, payload: dict[str, Any]) -> None:
+    """Atomic write: temp + rename, so a crash mid-write can't leave a torn file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2) + "\n")
+    tmp.replace(path)
+
+
+def _load_partial(path: Path, expected_config_hash: str) -> dict[str, Any]:
+    """Return partial payload if present and valid for this config_hash, else ``{}``.
+
+    A hash mismatch means the config changed since the partial was written — refuse
+    to resume rather than silently mix runs. The user can delete the partial to
+    start fresh, or revert the config change.
+    """
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text())
+    seen_hash = payload.get("config_hash")
+    if seen_hash != expected_config_hash:
+        raise ValueError(
+            f"{path} was written for config_hash={seen_hash}, current config "
+            f"is {expected_config_hash}. Delete the partial file to start fresh "
+            f"or revert your config."
+        )
+    return payload
+
+
 def _utc_timestamp() -> str:
     return (
         datetime.now(UTC)
@@ -118,12 +161,30 @@ def run_eval(
     limit_override: int | None = None,
     metrics_path: Path = DEFAULT_METRICS_PATH,
     config_path: Path | None = None,
+    resume: bool = True,
 ) -> dict[str, Any]:
-    """Run every task in ``cfg.eval.tasks`` and append one entry to metrics.json."""
-    lm = _build_lm(cfg, adapter)
-    aggregated: dict[str, Any] = {"results": {}}
+    """Run every task in ``cfg.eval.tasks`` and append one entry to metrics.json.
+
+    Persists per-task results to a sibling ``.<name>.partial.json`` file as the
+    loop progresses, so a crash mid-run loses at most one task. With ``resume=True``
+    (default), a re-invocation picks up where the previous run left off; pass
+    ``resume=False`` to ignore any existing partial and start fresh.
+    """
+    partial_path = _partial_path(metrics_path, name)
+    completed: dict[str, Any] = {}
+    if resume:
+        completed = _load_partial(partial_path, cfg.config_hash).get("results", {})
+
+    aggregated: dict[str, Any] = {"results": dict(completed)}
+    # Defer LM construction until we know there's a task to actually run — a
+    # fully-resumed run pays no model-load cost.
+    lm: Any = None
 
     for task_name, task_cfg in cfg.eval.tasks.items():
+        if task_name in completed:
+            continue
+        if lm is None:
+            lm = _build_lm(cfg, adapter)
         limit = limit_override if limit_override is not None else task_cfg.limit
         aggregated["results"][task_name] = _evaluate_one_task(
             lm,
@@ -132,6 +193,10 @@ def run_eval(
             batch_size=cfg.eval.batch_size,
             limit=limit,
             random_seed=cfg.seed,
+        )
+        _write_partial(
+            partial_path,
+            {"config_hash": cfg.config_hash, "results": aggregated["results"]},
         )
 
     entry: dict[str, Any] = {
@@ -147,6 +212,10 @@ def run_eval(
         "extras": {},
     }
     append_run(entry, metrics_path)
+    # Only clear the partial after a successful append — if append raises (e.g.
+    # schema_version mismatch), the partial stays around for manual recovery.
+    if partial_path.exists():
+        partial_path.unlink()
     return entry
 
 
@@ -176,6 +245,11 @@ def main() -> None:
         default=DEFAULT_METRICS_PATH,
         help="Where to write/append results JSON (default: results/metrics.json)",
     )
+    parser.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="Ignore any .<name>.partial.json sibling and re-run every task from scratch",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -187,6 +261,7 @@ def main() -> None:
         limit_override=args.limit,
         metrics_path=args.metrics_path,
         config_path=args.config,
+        resume=not args.no_resume,
     )
     print(json.dumps(entry, indent=2))
 
