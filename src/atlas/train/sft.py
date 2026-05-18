@@ -15,6 +15,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+
+# Hide all but cuda:0 before any module triggers CUDA init. On multi-GPU
+# hosts (Kaggle T4x2) HF Trainer auto-wraps the model in DataParallel,
+# which silently corrupts bnb's 4-bit quant state when replicating to the
+# second GPU and crashes inside cuBLAS. A 0.5B model fits on one card; we
+# only need DDP for the bigger phases. Users wanting multi-GPU can export
+# CUDA_VISIBLE_DEVICES themselves — setdefault leaves an explicit setting
+# alone.
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
+
 from pathlib import Path
 from typing import Any
 
