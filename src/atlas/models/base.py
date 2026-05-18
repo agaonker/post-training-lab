@@ -89,7 +89,12 @@ def load_base_model_and_tokenizer(
         # `dtype=` is the post-transformers-4.56 spelling; `torch_dtype=` is the
         # deprecated alias and triggers a runtime warning starting in 4.56.
         "dtype": dtype,
-        "device_map": "auto",
+        # Pin to cuda:0 instead of "auto" on multi-GPU hosts (e.g. Kaggle T4x2):
+        # "auto" shards the model, then HF Trainer wraps it in DataParallel and
+        # crashes with "parameters and buffers must be on cuda:0". A 0.5B model
+        # + LoRA fits on one card. Fall back to "auto" off-GPU so tests / Mac
+        # smoke runs still load onto CPU.
+        "device_map": {"": 0} if torch.cuda.is_available() else "auto",
     }
     if cfg.model.revision:
         model_kwargs["revision"] = cfg.model.revision

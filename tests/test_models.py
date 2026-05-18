@@ -145,6 +145,22 @@ def test_load_base_omits_quant_kwarg_on_non_cuda(monkeypatch):
     assert "quantization_config" not in seen["model_kwargs"]
 
 
+def test_load_base_pins_to_cuda_zero_when_cuda_available(monkeypatch):
+    """Multi-GPU hosts (Kaggle T4x2) need a single-device map; "auto" shards
+    and HF Trainer then crashes wrapping the sharded model in DataParallel."""
+    seen = _patch_loaders(monkeypatch, has_pad=True)
+    monkeypatch.setattr(base.torch.cuda, "is_available", lambda: True)
+    base.load_base_model_and_tokenizer(_cfg())
+    assert seen["model_kwargs"]["device_map"] == {"": 0}
+
+
+def test_load_base_uses_auto_device_map_without_cuda(monkeypatch):
+    """CPU / Mac fallback: "auto" lets transformers place on CPU."""
+    seen = _patch_loaders(monkeypatch, has_pad=True)
+    base.load_base_model_and_tokenizer(_cfg())
+    assert seen["model_kwargs"]["device_map"] == "auto"
+
+
 def test_load_base_resolves_dtype(monkeypatch):
     """cfg.model.dtype string is turned into a real torch.dtype.
 
