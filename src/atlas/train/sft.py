@@ -29,6 +29,9 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
 from pathlib import Path
 from typing import Any
 
+from huggingface_hub import HfApi
+from huggingface_hub.errors import HfHubHTTPError
+
 from atlas.data.sft_data import load_ultrachat_sft
 from atlas.models.adapters import make_lora_config
 from atlas.models.base import load_base_model_and_tokenizer
@@ -79,9 +82,6 @@ def _preflight_hub_access(repo_id: str) -> None:
     proves the token is valid; ``create_repo(..., exist_ok=True)`` is a no-op
     on an existing repo but still requires write scope on the namespace.
     """
-    from huggingface_hub import HfApi
-    from huggingface_hub.errors import HfHubHTTPError
-
     api = HfApi()
     try:
         api.whoami()
@@ -139,9 +139,17 @@ def run_sft(
     pushed_to: str | None = None
     push_error: str | None = None
     if hub_repo is not None:
+        # Upload via HfApi directly instead of trainer.push_to_hub: the trl
+        # wrapper forwards kwargs into _BaseTrainer.create_model_card which
+        # rejects `repo_id` on current trl, crashing *after* the weights have
+        # already been uploaded — confusing and unrecoverable inside the
+        # script. The repo is auto-tagged by HF from adapter_config.json so we
+        # don't lose the PEFT metadata by skipping the trl path.
         try:
-            trainer.push_to_hub(
+            HfApi().upload_folder(
+                folder_path=train_config.output_dir,
                 repo_id=hub_repo,
+                repo_type="model",
                 commit_message=f"SFT adapter (config_hash={cfg.config_hash})",
             )
             pushed_to = hub_repo
@@ -149,7 +157,7 @@ def run_sft(
             push_error = f"{type(e).__name__}: {e}"
             abs_path = Path(train_config.output_dir).resolve()
             print(
-                f"\n[push_to_hub failed; adapter is safe at {abs_path}]\n"
+                f"\n[hub upload failed; adapter is safe at {abs_path}]\n"
                 f"Recover with:\n"
                 f"  from huggingface_hub import HfApi\n"
                 f'  HfApi().upload_folder(folder_path="{abs_path}", '

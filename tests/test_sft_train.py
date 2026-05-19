@@ -150,22 +150,15 @@ class _FakeHfHubHTTPError(Exception):
 
 
 def _patch_hf_api(monkeypatch, fake_api):
-    """Make ``from huggingface_hub import HfApi`` and ``HfHubHTTPError`` resolve to fakes.
+    """Replace HfApi and HfHubHTTPError in the sft module namespace.
 
-    The error class is module-level (not built inside this helper) so the class
-    the fake raises is the same class ``_preflight_hub_access`` imports — calling
-    this helper twice in a test would otherwise create two distinct classes and
-    the except branch wouldn't match.
+    setattr on the module (not sys.modules) because the source imports are
+    module-level — by the time tests run, the real names are already bound and
+    patching sys.modules would be a no-op. The error class is module-level so
+    `except HfHubHTTPError` matches what the fake raises.
     """
-    import sys
-    import types
-
-    fake_hub = types.ModuleType("huggingface_hub")
-    fake_hub.HfApi = lambda: fake_api
-    fake_errors = types.ModuleType("huggingface_hub.errors")
-    fake_errors.HfHubHTTPError = _FakeHfHubHTTPError
-    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
-    monkeypatch.setitem(sys.modules, "huggingface_hub.errors", fake_errors)
+    monkeypatch.setattr(sft, "HfApi", lambda: fake_api)
+    monkeypatch.setattr(sft, "HfHubHTTPError", _FakeHfHubHTTPError)
 
 
 def test_preflight_hub_access_passes_when_token_has_write_scope(monkeypatch):
