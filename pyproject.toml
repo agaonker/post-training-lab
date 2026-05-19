@@ -58,6 +58,13 @@ dev = [
     "pytest>=8",
     "types-pyyaml",
 ]
+# Documentation site (mkdocs-material → GitHub Pages, built by
+# .github/workflows/docs.yml). Kept out of [dev] so CI lint/test installs stay
+# fast — only the docs workflow installs this extra.
+docs = [
+    "mkdocs-material>=9.5",
+    "pymdown-extensions>=10",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/atlas"]

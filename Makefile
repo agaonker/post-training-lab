@@ -17,7 +17,7 @@
 UV     ?= uv
 RUNNER ?= $(if $(and $(shell command -v uv 2>/dev/null),$(wildcard .venv)),uv run,)
 
-.PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke sft sft-smoke clean
+.PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke sft sft-smoke docs-serve docs-build clean
 
 help:
 	@echo "Targets:"
@@ -32,6 +32,8 @@ help:
 	@echo "  eval-smoke     limit=10 per task; proves the harness wiring without compute"
 	@echo "  sft            Phase 1: full SFT run from configs/sft_qwen05b.yaml; pushes adapter to HF Hub"
 	@echo "  sft-smoke      50-step SFT smoke (no Hub push); proves the train wiring on free tier"
+	@echo "  docs-serve     mkdocs serve on http://127.0.0.1:8000 (live reload)"
+	@echo "  docs-build     mkdocs build --strict; mirrors what CI does before deploying to Pages"
 
 install:
 	$(UV) sync --extra dev --extra eval
@@ -82,6 +84,14 @@ sft-smoke:
 	    --max-steps 50 \
 	    --no-push-to-hub
 
+# Docs site (mkdocs-material → GitHub Pages). Install the [docs] extra first:
+#   uv sync --extra docs   (or pip install -e .[docs])
+docs-serve:
+	$(RUNNER) mkdocs serve
+
+docs-build:
+	$(RUNNER) mkdocs build --strict
+
 clean:
-	rm -rf .pytest_cache .ruff_cache .mypy_cache
+	rm -rf .pytest_cache .ruff_cache .mypy_cache site
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +

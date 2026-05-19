@@ -1,0 +1,65 @@
+# MkDocs Material config. The site builds via .github/workflows/docs.yml on every
+# push to main that touches docs/, mkdocs.yml, or the workflow itself. Pages
+# Source must be set to "GitHub Actions" in repo Settings → Pages (one-time setup).
+
+site_name: post-training-lab
+site_description: A controlled comparison of LLM post-training methods on Qwen2.5-0.5B.
+site_url: https://agaonker.github.io/post-training-lab/
+repo_url: https://github.com/agaonker/post-training-lab
+repo_name: agaonker/post-training-lab
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+    - search.suggest
+    - search.highlight
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Home: index.md
+  - Methods:
+      - methods/index.md
+      - LoRA / QLoRA: methods/lora.md

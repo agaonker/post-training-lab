@@ -32,5 +32,8 @@ hf_cache/
 notebooks/scratch/
 .ipynb_checkpoints/
 
+# mkdocs build output (the deployable site is built fresh in CI on every push)
+site/
+
 # OS / editor
 .DS_Store

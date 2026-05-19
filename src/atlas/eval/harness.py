@@ -85,7 +85,7 @@ def _flatten_metrics(aggregated: dict[str, Any]) -> dict[str, float]:
     flat: dict[str, float] = {}
     for task_name, task_metrics in aggregated.get("results", {}).items():
         for metric_name, value in task_metrics.items():
-            if isinstance(value, (int, float)) and "stderr" not in metric_name:
+            if isinstance(value, int | float) and "stderr" not in metric_name:
                 flat[f"{task_name}/{metric_name}"] = float(value)
     return flat
 

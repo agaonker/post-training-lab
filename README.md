@@ -4,6 +4,8 @@ A controlled, reproducible comparison of modern LLM post-training methods — SF
 full RLHF (reward model + PPO), and GRPO/RLVR — applied to the same small base model
 (Qwen2.5-0.5B-Instruct) with the same evaluation harness.
 
+📖 **Docs:** [agaonker.github.io/post-training-lab](https://agaonker.github.io/post-training-lab/) — method explainers, paper links, and hyperparameter reasoning.
+
 See [`PROJECT.md`](PROJECT.md) for the full charter and phase plan.
 
 > **Status:** Phase 0 (scaffolding) in progress. This README is expanded with the headline
