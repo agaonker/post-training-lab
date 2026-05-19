@@ -123,6 +123,77 @@ def test_build_train_config_handles_missing_train_block(monkeypatch):
     assert sc.kwargs == {}
 
 
+# --- _preflight_hub_access -----------------------------------------------------
+
+class _FakeHfApi:
+    """Captures whoami/create_repo calls and lets tests inject failures."""
+
+    def __init__(self, *, whoami_raises=None, create_repo_raises=None):
+        self._whoami_raises = whoami_raises
+        self._create_repo_raises = create_repo_raises
+        self.calls: list[tuple[str, tuple, dict]] = []
+
+    def whoami(self, *args, **kwargs):
+        self.calls.append(("whoami", args, kwargs))
+        if self._whoami_raises is not None:
+            raise self._whoami_raises
+        return {"name": "test-user"}
+
+    def create_repo(self, *args, **kwargs):
+        self.calls.append(("create_repo", args, kwargs))
+        if self._create_repo_raises is not None:
+            raise self._create_repo_raises
+
+
+class _FakeHfHubHTTPError(Exception):
+    pass
+
+
+def _patch_hf_api(monkeypatch, fake_api):
+    """Make ``from huggingface_hub import HfApi`` and ``HfHubHTTPError`` resolve to fakes.
+
+    The error class is module-level (not built inside this helper) so the class
+    the fake raises is the same class ``_preflight_hub_access`` imports — calling
+    this helper twice in a test would otherwise create two distinct classes and
+    the except branch wouldn't match.
+    """
+    import sys
+    import types
+
+    fake_hub = types.ModuleType("huggingface_hub")
+    fake_hub.HfApi = lambda: fake_api
+    fake_errors = types.ModuleType("huggingface_hub.errors")
+    fake_errors.HfHubHTTPError = _FakeHfHubHTTPError
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.errors", fake_errors)
+
+
+def test_preflight_hub_access_passes_when_token_has_write_scope(monkeypatch):
+    """Happy path: whoami succeeds, create_repo no-ops on existing repo."""
+    fake = _FakeHfApi()
+    _patch_hf_api(monkeypatch, fake)
+    sft._preflight_hub_access("agaonker/atlas-sft-qwen05b-v1")
+    assert [c[0] for c in fake.calls] == ["whoami", "create_repo"]
+    # exist_ok=True is the contract — without it we'd crash on re-runs.
+    assert fake.calls[1][2].get("exist_ok") is True
+
+
+def test_preflight_hub_access_raises_on_whoami_failure(monkeypatch):
+    """A bad/missing token should fail fast, not after hours of training."""
+    fake = _FakeHfApi(whoami_raises=_FakeHfHubHTTPError("401 invalid token"))
+    _patch_hf_api(monkeypatch, fake)
+    with pytest.raises(RuntimeError, match="whoami"):
+        sft._preflight_hub_access("agaonker/atlas-sft-qwen05b-v1")
+
+
+def test_preflight_hub_access_raises_on_create_repo_403(monkeypatch):
+    """The exact bug we got burned by: read token, 403 only after train()."""
+    fake = _FakeHfApi(create_repo_raises=_FakeHfHubHTTPError("403 Forbidden"))
+    _patch_hf_api(monkeypatch, fake)
+    with pytest.raises(RuntimeError, match="cannot write"):
+        sft._preflight_hub_access("agaonker/atlas-sft-qwen05b-v1")
+
+
 # --- configs/sft_qwen05b.yaml canary -------------------------------------------
 
 def test_sft_qwen05b_yaml_loads_and_merges():

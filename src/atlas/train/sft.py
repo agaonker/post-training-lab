@@ -71,6 +71,37 @@ def _load_dataset(cfg: Config) -> Any:
     )
 
 
+def _preflight_hub_access(repo_id: str) -> None:
+    """Validate the HF token can write to ``repo_id`` before training starts.
+
+    Without this, a read-only or wrong-namespace token surfaces as a 403 only
+    after ``trainer.train()`` completes — costing hours of compute. ``whoami``
+    proves the token is valid; ``create_repo(..., exist_ok=True)`` is a no-op
+    on an existing repo but still requires write scope on the namespace.
+    """
+    from huggingface_hub import HfApi
+    from huggingface_hub.errors import HfHubHTTPError
+
+    api = HfApi()
+    try:
+        api.whoami()
+    except HfHubHTTPError as e:
+        raise RuntimeError(
+            "HF preflight failed: whoami() rejected. Set "
+            "HUGGING_FACE_HUB_TOKEN (with Write scope) or pass --no-push-to-hub "
+            f"to skip the upload. Original error: {e}"
+        ) from e
+    try:
+        api.create_repo(repo_id, exist_ok=True)
+    except HfHubHTTPError as e:
+        raise RuntimeError(
+            f"HF preflight failed: token cannot write to {repo_id!r}. "
+            "Regenerate with Write scope at https://huggingface.co/settings/tokens, "
+            "fix the namespace in cfg.output.hub_repo, or pass --no-push-to-hub. "
+            f"Original error: {e}"
+        ) from e
+
+
 def run_sft(
     cfg: Config,
     *,
@@ -81,6 +112,13 @@ def run_sft(
     from trl import SFTTrainer
 
     set_global_seed(cfg.seed)
+
+    hub_repo: str | None = (
+        cfg.output.hub_repo if (push_to_hub and cfg.output is not None) else None
+    )
+    if hub_repo is not None:
+        # Fail in ~200ms instead of 3 hours if the token can't push.
+        _preflight_hub_access(hub_repo)
 
     train_ds = _load_dataset(cfg)
     model, tokenizer = load_base_model_and_tokenizer(cfg)
@@ -99,17 +137,32 @@ def run_sft(
     trainer.save_model(train_config.output_dir)
 
     pushed_to: str | None = None
-    if push_to_hub and cfg.output is not None and cfg.output.hub_repo:
-        trainer.push_to_hub(
-            repo_id=cfg.output.hub_repo,
-            commit_message=f"SFT adapter (config_hash={cfg.config_hash})",
-        )
-        pushed_to = cfg.output.hub_repo
+    push_error: str | None = None
+    if hub_repo is not None:
+        try:
+            trainer.push_to_hub(
+                repo_id=hub_repo,
+                commit_message=f"SFT adapter (config_hash={cfg.config_hash})",
+            )
+            pushed_to = hub_repo
+        except Exception as e:  # noqa: BLE001 — preserve run summary on push fail
+            push_error = f"{type(e).__name__}: {e}"
+            abs_path = Path(train_config.output_dir).resolve()
+            print(
+                f"\n[push_to_hub failed; adapter is safe at {abs_path}]\n"
+                f"Recover with:\n"
+                f"  from huggingface_hub import HfApi\n"
+                f'  HfApi().upload_folder(folder_path="{abs_path}", '
+                f'repo_id="{hub_repo}", repo_type="model")\n'
+                f"Original error: {push_error}\n",
+                flush=True,
+            )
 
     return {
         "config_hash": cfg.config_hash,
         "output_dir": train_config.output_dir,
         "hub_repo": pushed_to,
+        "push_error": push_error,
         "training_loss": float(result.training_loss)
         if result.training_loss is not None
         else None,
