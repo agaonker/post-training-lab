@@ -63,3 +63,4 @@ nav:
   - Methods:
       - methods/index.md
       - LoRA / QLoRA: methods/lora.md
+      - SFT: methods/sft.md
