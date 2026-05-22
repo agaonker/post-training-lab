@@ -4,7 +4,7 @@ Phase 1 of the project. Train the base Qwen2.5-0.5B-Instruct to follow
 instructions in a chat format by showing it ~5,000 high-quality user/assistant
 conversations from UltraChat-200k and minimizing next-token cross-entropy.
 
-Everything on the [LoRA / QLoRA](lora.md) page applies — same r=16 adapters,
+Everything on the [LoRA / QLoRA](../training/lora.md) page applies — same r=16 adapters,
 same 4-bit NF4 base, same target modules. This page only documents what's
 **different** for SFT: the loss, the data, the training hparams, and the
 success criterion.
@@ -84,7 +84,7 @@ this on is a one-line YAML change in `cfg.train`.
 
 From [`configs/sft_qwen05b.yaml`][sft-yaml] — these are the **SFT-specific**
 knobs. Everything else (LoRA rank, quantization, target modules) is inherited
-from `base.yaml` and covered on the [LoRA / QLoRA](lora.md) page.
+from `base.yaml` and covered on the [LoRA / QLoRA](../training/lora.md) page.
 
 | Knob | Value | Why |
 |------|-------|-----|

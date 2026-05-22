@@ -12,7 +12,7 @@ by construction.
 
 - **[Methods](methods/index.md)** — explainers for each post-training method,
   including paper links and the exact hyperparameters this repo uses.
-- **[LoRA / QLoRA](methods/lora.md)** — the parameter-efficient setup shared
+- **[LoRA / QLoRA](training/lora.md)** — the parameter-efficient setup shared
   across every phase.
 
 ## Status

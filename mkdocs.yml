@@ -58,9 +58,20 @@ extra_javascript:
   - javascripts/mathjax.js
   - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
 
+# Nav order mirrors the project's actual flow:
+#   1. Foundation  — Phase 0 work that everything else builds on
+#   2. Results     — the cross-method comparison table (grows per phase)
+#   3. Methods     — Phase 1+ algorithms we compare (what varies)
+#   4. Training    — shared training infrastructure (what's constant)
 nav:
   - Home: index.md
+  - Foundation:
+      - Overview: foundation/index.md
+      - Eval harness: foundation/eval-harness.md
+      - Baseline (Phase 0): foundation/baseline.md
+  - Results: results.md
   - Methods:
-      - methods/index.md
-      - LoRA / QLoRA: methods/lora.md
+      - Overview: methods/index.md
       - SFT: methods/sft.md
+  - Training mechanics:
+      - LoRA / QLoRA: training/lora.md
