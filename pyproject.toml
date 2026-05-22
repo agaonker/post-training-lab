@@ -45,6 +45,11 @@ eval = [
     # rule-based checkers import these at task-load time. Plain `lm-eval` won't
     # ship them and the eval crashes mid-run.
     "lm-eval[ifeval]>=0.4.11",
+    # lm-eval's result_schema.py uses TypedDict(..., extra_items=...) (PEP 728),
+    # which only exists in typing_extensions >= 4.13. Older images pin a stale
+    # version and lm-eval then crashes at import. Floor it here so .[eval] can't
+    # resolve to a typing_extensions that breaks the harness.
+    "typing_extensions>=4.13",
     "anthropic>=0.40",
 ]
 # NOTE on vLLM (fast GRPO rollouts, Phase 4): deliberately NOT a project extra.
