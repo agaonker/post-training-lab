@@ -21,10 +21,19 @@ One-time setup on your laptop:
     # reuse the secret the SFT notebook already uses (exposes HUGGING_FACE_HUB_TOKEN):
     modal secret create hf-token HUGGING_FACE_HUB_TOKEN=hf_xxx
 
-Usage (run from the repo root — the image reads pyproject.toml + configs/ locally):
-    # cheap de-risk probe (validates Modal + vLLM wiring without a full run):
-    modal run src/atlas/cloud/eval_modal.py --name base --method none --limit 50
-    # the real comparison — base + sft back-to-back, clean two-row metrics.json:
+Usage (run from the repo root — the image reads pyproject.toml + configs/ locally).
+A tiered loop, cheapest first — only pay for what a change can actually break:
+    make eval-modal-check    # local, seconds, $0: imports/entrypoints/config preflight
+    make eval-modal-probe    # ~1-2 min: one task, limit 5 — proves the vLLM path end-to-end
+    make eval-modal          # ~10 min: the real base + sft comparison (full task list)
+
+    # interactive container in this exact image (vllm + atlas + GPU) — iterate without a
+    # fresh `modal run` per attempt; best for image-level issues (imports, the nvcc class):
+    make eval-modal-shell    # then e.g.  python -c "import vllm, atlas; print('ok')"
+
+Raw entrypoints (the make targets wrap these):
+    modal run src/atlas/cloud/eval_modal.py::probe --task gsm8k --limit 5
+    modal run src/atlas/cloud/eval_modal.py::main --name base --method none --limit 50
     modal run src/atlas/cloud/eval_modal.py::suite --fresh
 """
 
@@ -32,9 +41,20 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import modal
+
+# The `modal` CLI loads this file as a standalone module in your laptop's Python — which
+# isn't this project's .venv and may not have `atlas` installed (modal is a separate CLI by
+# design; see CLAUDE.md). The local entrypoints below import atlas.eval.harness to append
+# results, so put the repo's src/ on sys.path. In the Modal container this file is /root/
+# eval_modal.py (parents = [/root, /], no [2]) and atlas is already mounted at /root/atlas —
+# so guard on depth AND on the src/atlas layout existing, making this a no-op remotely.
+_parents = Path(__file__).resolve().parents  # local: <repo>/src/atlas/cloud/eval_modal.py
+if len(_parents) > 2 and (_parents[2] / "atlas").is_dir() and str(_parents[2]) not in sys.path:
+    sys.path.insert(0, str(_parents[2]))  # <repo>/src
 
 # bf16-native GPU by default (Ada). A10G / A100 / L4 are all native bf16; a T4/P100
 # would force float16 and reopen the dtype-consistency issue. Override with ATLAS_EVAL_GPU.
@@ -42,13 +62,22 @@ GPU = os.environ.get("ATLAS_EVAL_GPU", "L4")
 
 app = modal.App("atlas-eval")
 
-# Deps from pyproject (incl. the [eval] extra) + vllm (Modal-image-only). vllm is left
-# unpinned for the first build; pin it to the resolved version afterward for reproducibility.
+# Deps from pyproject (incl. the [eval] extra) + vllm (Modal-image-only). vllm is pinned to
+# the version the first green build resolved, so the image is reproducible across rebuilds.
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install_from_pyproject("pyproject.toml", optional_dependencies=["eval"])
-    .pip_install("vllm")  # TODO: pin to the version the first green build resolves
-    .add_local_python_source("atlas")
+    .pip_install("vllm==0.21.0")  # pinned: first green build on L4 (CUDA runtime, no nvcc)
+    # Force vLLM's native Torch top-k/top-p sampler. The default auto-picks FlashInfer,
+    # which JIT-compiles its sampling kernel at warmup and needs nvcc + the CUDA toolkit
+    # (/usr/local/cuda) — absent from debian_slim, which carries only the CUDA runtime.
+    # Irrelevant for eval anyway: MMLU is loglikelihood (no sampling), IFEval is greedy.
+    .env({"VLLM_USE_FLASHINFER_SAMPLER": "0"})
+    # Mount the source by path rather than add_local_python_source("atlas"): the latter
+    # imports `atlas` in the *local* Python running the modal CLI to locate it, but modal
+    # is a standalone laptop CLI (not in this project's .venv), where atlas isn't installed.
+    # /root is on the container PYTHONPATH, so /root/atlas is importable as `atlas`.
+    .add_local_dir("src/atlas", remote_path="/root/atlas")
     .add_local_dir("configs", remote_path="/root/configs")
 )
 
@@ -63,11 +92,24 @@ hf_cache = modal.Volume.from_name("atlas-hf-cache", create_if_missing=True)
     timeout=60 * 60,  # generous: covers a cold model download + a full 4-task run
     volumes={"/root/.cache/huggingface": hf_cache},
     secrets=[modal.Secret.from_name("hf-token")],  # exposes HUGGING_FACE_HUB_TOKEN
+    # Retire the container after one eval. `suite` calls this twice (base, then sft_v1);
+    # without this Modal reuses the warm container, where the first run's vLLM EngineCore
+    # subprocess still pins the GPU (~20/22 GiB) — so the second init fails the
+    # gpu_memory_utilization check (OOM at startup). A fresh container = a clean GPU per run.
+    max_inputs=1,
 )
 def run_eval_remote(
-    name: str, method: str, adapter: str | None = None, limit: int | None = None
+    name: str,
+    method: str,
+    adapter: str | None = None,
+    limit: int | None = None,
+    only_tasks: list[str] | None = None,
 ) -> dict:
-    """Run the eval on a Modal GPU with the vLLM backend; return the metrics entry."""
+    """Run the eval on a Modal GPU with the vLLM backend; return the metrics entry.
+
+    ``only_tasks`` trims ``eval.tasks`` to the named subset (the fast ``probe`` path uses it
+    to skip MMLU's 57-subject fan-out). None = the full task list from the config.
+    """
     from atlas.eval.harness import run_eval
     from atlas.utils.config import load_config
 
@@ -76,6 +118,11 @@ def run_eval_remote(
 
     cfg = load_config("/root/configs/baseline.yaml")
     cfg.eval.backend = "vllm"  # excluded from config_hash → fingerprint unchanged
+    if only_tasks:
+        missing = [t for t in only_tasks if t not in cfg.eval.tasks]
+        if missing:
+            raise ValueError(f"--task {missing} not in config tasks {sorted(cfg.eval.tasks)}")
+        cfg.eval.tasks = {k: v for k, v in cfg.eval.tasks.items() if k in only_tasks}
     return run_eval(
         cfg,
         name=name,
@@ -109,13 +156,24 @@ def _reset_metrics() -> None:
 
 
 @app.local_entrypoint()
+def probe(task: str = "gsm8k", limit: int = 5) -> None:
+    """Fast wiring probe (~1-2 min): one task, tiny limit — exercises the whole vLLM path
+    (model load → generate → metric extraction → local append) without MMLU's 57-subject
+    fan-out. For *numbers*, not this: use ``main``/``suite``. Run ``eval-modal-check`` first.
+    """
+    _append_local(run_eval_remote.remote("probe", "none", None, limit, [task]))
+
+
+@app.local_entrypoint()
 def main(
     name: str = "base",
     method: str = "none",
     adapter: str | None = None,
     limit: int | None = None,
 ) -> None:
-    """Single eval run (mirrors the CLI). Use --limit 50 for the cheap wiring probe."""
+    """Single full-task-list eval run (mirrors the CLI). For the cheap wiring check use the
+    ``probe`` entrypoint instead — ``--limit`` here still runs all 4 tasks (MMLU fans out to
+    57 subjects × 4 choices, so even ``--limit 50`` is ~11k requests)."""
     _append_local(run_eval_remote.remote(name, method, adapter, limit))
 
 

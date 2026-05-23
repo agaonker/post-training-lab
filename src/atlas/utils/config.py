@@ -86,7 +86,7 @@ class VllmCfg(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    gpu_memory_utilization: float = 0.9
+    gpu_memory_utilization: float = 0.6  # see configs/base.yaml: 0.9 OOMs the loglikelihood spike
     max_model_len: int | None = None  # null = model default; must fit few-shot prompt + gen
     tensor_parallel_size: int = 1
     data_parallel_size: int = 1  # the scale lever; >1 needs Ray + a multi-GPU container

@@ -120,7 +120,7 @@ def test_build_lm_vllm_downloads_adapter_and_passes_knobs(monkeypatch):
     assert kw["dtype"] == "bfloat16"
     assert kw["seed"] == cfg.seed
     assert kw["max_lora_rank"] == 16
-    assert kw["gpu_memory_utilization"] == 0.9
+    assert kw["gpu_memory_utilization"] == 0.6  # lowered from 0.9: see configs/base.yaml
     assert kw["lora_local_path"] == "/local/user/atlas-sft-v1"
     # max_model_len is null in the config → not forwarded
     assert "max_model_len" not in kw

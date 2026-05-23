@@ -1666,6 +1666,7 @@ docs = [
 eval = [
     { name = "anthropic" },
     { name = "lm-eval", extra = ["ifeval"] },
+    { name = "typing-extensions" },
 ]
 
 [package.metadata]
@@ -1691,6 +1692,7 @@ requires-dist = [
     { name = "transformers", specifier = ">=4.56.2,<6" },
     { name = "trl", specifier = ">=1.4,<2" },
     { name = "types-pyyaml", marker = "extra == 'dev'" },
+    { name = "typing-extensions", marker = "extra == 'eval'", specifier = ">=4.13" },
     { name = "wandb", specifier = ">=0.17" },
 ]
 provides-extras = ["eval", "dev", "docs"]
