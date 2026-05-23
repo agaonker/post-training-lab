@@ -28,8 +28,17 @@ wandb:
   project: post-training-lab
   mode: online
 
+# batch_size / backend / vllm are runtime-only knobs (speed, not what's measured) and
+# are excluded from config_hash — see atlas.utils.config.compute_config_hash.
 eval:
-  batch_size: auto
+  batch_size: 16        # explicit batching is the main HF-backend speedup; vLLM ignores it
+  backend: hf           # hf | vllm — Modal eval overrides to vllm
+  vllm:                 # only used when backend == vllm
+    gpu_memory_utilization: 0.9
+    max_model_len: null   # null = model default (32k); must fit 8-shot gsm8k prompt + gen
+    tensor_parallel_size: 1
+    data_parallel_size: 1
+    max_lora_rank: 16     # must be >= lora.r
   tasks:
     mmlu:           {num_fewshot: 5, limit: 1000}
     gsm8k:          {num_fewshot: 8}

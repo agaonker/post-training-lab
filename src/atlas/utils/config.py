@@ -23,12 +23,13 @@ BASE_CONFIG_NAME = "base.yaml"
 
 # --- sub-models -----------------------------------------------------------------
 
+
 class ModelCfg(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
     revision: str | None = None  # pin to a commit SHA for reproducibility; null = latest
-    dtype: str = "bfloat16"      # bfloat16 | float16 | float32
+    dtype: str = "bfloat16"  # bfloat16 | float16 | float32
 
 
 class QuantCfg(BaseModel):
@@ -50,8 +51,13 @@ class LoraCfg(BaseModel):
     dropout: float = 0.05
     target_modules: list[str] = Field(
         default_factory=lambda: [
-            "q_proj", "k_proj", "v_proj", "o_proj",
-            "gate_proj", "up_proj", "down_proj",
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
         ]
     )
 
@@ -71,11 +77,29 @@ class TaskCfg(BaseModel):
     limit: int | None = None  # cap samples for speed; null = full task
 
 
+class VllmCfg(BaseModel):
+    """vLLM engine knobs — runtime/perf only, excluded from ``config_hash``.
+
+    Used only when ``eval.backend == "vllm"`` (the Modal GPU path); ignored on the HF
+    backend. vLLM does its own continuous batching, so ``eval.batch_size`` doesn't apply.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    gpu_memory_utilization: float = 0.9
+    max_model_len: int | None = None  # null = model default; must fit few-shot prompt + gen
+    tensor_parallel_size: int = 1
+    data_parallel_size: int = 1  # the scale lever; >1 needs Ray + a multi-GPU container
+    max_lora_rank: int = 16  # must be >= lora.r
+
+
 class EvalCfg(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tasks: dict[str, TaskCfg] = Field(default_factory=dict)
     batch_size: int | str = "auto"
+    backend: str = "hf"  # hf | vllm — vllm is the Modal-only fast path
+    vllm: VllmCfg = Field(default_factory=VllmCfg)
 
 
 class DatasetCfg(BaseModel):
@@ -83,8 +107,8 @@ class DatasetCfg(BaseModel):
 
     name: str
     split: str
-    revision: str | None = None   # pin the dataset commit SHA
-    config: str | None = None     # HF dataset config name (e.g. gsm8k's "main")
+    revision: str | None = None  # pin the dataset commit SHA
+    config: str | None = None  # HF dataset config name (e.g. gsm8k's "main")
     n_samples: int | None = None  # null = use the whole split
 
 
@@ -123,6 +147,7 @@ class Config(BaseModel):
 
 
 # --- loading --------------------------------------------------------------------
+
 
 def merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Deep-merge ``override`` onto a copy of ``base``.
@@ -174,8 +199,17 @@ def compute_config_hash(cfg: Config) -> str:
 
     sha256 over the canonical (sorted-key) JSON of the config. Logged to W&B and the
     experiment markdown so any run is traceable to its exact settings.
+
+    Runtime-only eval knobs (``batch_size``, ``backend``, the whole ``vllm`` block) are
+    excluded: they change *how fast* a run goes, not *what is measured*, so tuning them
+    must not flip the fingerprint, break partial-resume, or make a baseline look
+    incomparable to the run it baselines.
     """
-    canonical = json.dumps(cfg.model_dump(mode="json"), sort_keys=True)
+    payload = cfg.model_dump(
+        mode="json",
+        exclude={"eval": {"batch_size": True, "backend": True, "vllm": True}},
+    )
+    canonical = json.dumps(payload, sort_keys=True)
     return hashlib.sha256(canonical.encode()).hexdigest()[:8]
 
 

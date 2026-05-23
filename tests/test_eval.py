@@ -29,6 +29,7 @@ CONFIGS = REPO_ROOT / "configs"
 
 # --- pure helpers ---------------------------------------------------------------
 
+
 def test_flatten_metrics_keeps_scalars_and_drops_stderr():
     aggregated = {
         "results": {
@@ -62,7 +63,80 @@ def test_build_model_args_baseline_and_adapter():
     assert "peft=user/atlas-sft-v1" in args_adapter
 
 
+def test_build_model_args_records_backend():
+    cfg = load_config(CONFIGS / "baseline.yaml")
+    assert "backend=hf" in _build_model_args(cfg, adapter=None)
+
+    cfg.eval.backend = "vllm"
+    args = _build_model_args(cfg, adapter=None)
+    assert "backend=vllm" in args
+    assert "tensor_parallel_size=1" in args
+    assert "data_parallel_size=1" in args
+
+
+# --- backend selection in _build_lm (lm-eval faked, so this runs offline) -------
+
+
+def _fake_lm_eval_submodule(monkeypatch, dotted: str, **attrs):
+    """Inject a fake lm_eval.* module tree into sys.modules for the duration of a test."""
+    import sys
+    import types
+
+    parts = dotted.split(".")
+    for i in range(1, len(parts)):
+        name = ".".join(parts[:i])
+        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    leaf = types.ModuleType(dotted)
+    for key, val in attrs.items():
+        setattr(leaf, key, val)
+    monkeypatch.setitem(sys.modules, dotted, leaf)
+    return leaf
+
+
+def test_build_lm_hf_passes_pretrained_dtype_and_peft(monkeypatch):
+    _fake_lm_eval_submodule(
+        monkeypatch, "lm_eval.models.huggingface", HFLM=lambda **kw: ("HFLM", kw)
+    )
+    cfg = load_config(CONFIGS / "baseline.yaml")  # backend defaults to hf
+
+    tag, kw = harness._build_lm(cfg, adapter="user/atlas-sft-v1")
+    assert tag == "HFLM"
+    assert kw["pretrained"] == "Qwen/Qwen2.5-0.5B-Instruct"
+    assert kw["dtype"] == "bfloat16"
+    assert kw["peft"] == "user/atlas-sft-v1"
+
+
+def test_build_lm_vllm_downloads_adapter_and_passes_knobs(monkeypatch):
+    _fake_lm_eval_submodule(monkeypatch, "lm_eval.models.vllm_causallms", VLLM=lambda **kw: kw)
+    import huggingface_hub
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", lambda repo_id: f"/local/{repo_id}")
+
+    cfg = load_config(CONFIGS / "baseline.yaml")
+    cfg.eval.backend = "vllm"
+
+    kw = harness._build_lm(cfg, adapter="user/atlas-sft-v1")
+    assert kw["pretrained"] == "Qwen/Qwen2.5-0.5B-Instruct"
+    assert kw["dtype"] == "bfloat16"
+    assert kw["seed"] == cfg.seed
+    assert kw["max_lora_rank"] == 16
+    assert kw["gpu_memory_utilization"] == 0.9
+    assert kw["lora_local_path"] == "/local/user/atlas-sft-v1"
+    # max_model_len is null in the config → not forwarded
+    assert "max_model_len" not in kw
+
+
+def test_build_lm_vllm_omits_lora_without_adapter(monkeypatch):
+    _fake_lm_eval_submodule(monkeypatch, "lm_eval.models.vllm_causallms", VLLM=lambda **kw: kw)
+    cfg = load_config(CONFIGS / "baseline.yaml")
+    cfg.eval.backend = "vllm"
+
+    kw = harness._build_lm(cfg, adapter=None)
+    assert "lora_local_path" not in kw
+
+
 # --- append_run / file I/O ------------------------------------------------------
+
 
 def test_append_run_creates_file_with_schema(tmp_path: Path):
     path = tmp_path / "metrics.json"
@@ -94,6 +168,7 @@ def test_append_run_creates_parent_directories(tmp_path: Path):
 
 
 # --- run_eval end-to-end (lm-eval stubbed) --------------------------------------
+
 
 def test_run_eval_writes_well_formed_entry(tmp_path: Path, monkeypatch):
     """Walks the full run_eval path with both lm-eval seams stubbed."""
@@ -165,6 +240,7 @@ def test_run_eval_propagates_limit_override(tmp_path: Path, monkeypatch):
 
 
 # --- incremental persistence + resume -------------------------------------------
+
 
 def _stub_lm_and_eval(monkeypatch, fake_results: dict[str, dict], seen_tasks: list[str]):
     """Helper: stub out the two lm-eval seams so run_eval is fully offline."""
@@ -282,9 +358,7 @@ def test_run_eval_no_resume_ignores_partial(tmp_path: Path, monkeypatch):
     seen: list[str] = []
     _stub_lm_and_eval(monkeypatch, fake_results, seen)
 
-    entry = run_eval(
-        cfg, name="base", method="none", metrics_path=metrics_path, resume=False
-    )
+    entry = run_eval(cfg, name="base", method="none", metrics_path=metrics_path, resume=False)
 
     assert seen == task_names  # every task re-run
     for name in task_names:
@@ -292,9 +366,7 @@ def test_run_eval_no_resume_ignores_partial(tmp_path: Path, monkeypatch):
     assert not partial.exists()
 
 
-def test_run_eval_rejects_partial_with_different_config_hash(
-    tmp_path: Path, monkeypatch
-):
+def test_run_eval_rejects_partial_with_different_config_hash(tmp_path: Path, monkeypatch):
     """A config change since the partial was written must refuse to resume."""
     cfg = load_config(CONFIGS / "baseline.yaml")
 

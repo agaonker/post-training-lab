@@ -17,7 +17,7 @@
 UV     ?= uv
 RUNNER ?= $(if $(and $(shell command -v uv 2>/dev/null),$(wildcard .venv)),uv run,)
 
-.PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke sft sft-smoke docs-serve docs-build clean
+.PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke eval-modal-smoke eval-modal sft sft-smoke docs-serve docs-build clean
 
 help:
 	@echo "Targets:"
@@ -30,6 +30,8 @@ help:
 	@echo "  eval-baseline  full lm-eval on un-tuned Qwen2.5-0.5B — Phase 0 deliverable"
 	@echo "                 designed for Colab/GPU; slow on Mac CPU"
 	@echo "  eval-smoke     limit=10 per task; proves the harness wiring without compute"
+	@echo "  eval-modal-smoke  Modal+vLLM wiring probe (limit=50, base only) — cheap"
+	@echo "  eval-modal     Modal+vLLM base + sft_v1, fresh metrics.json (the clean re-baseline)"
 	@echo "  sft            Phase 1: full SFT run from configs/sft_qwen05b.yaml; pushes adapter to HF Hub"
 	@echo "  sft-smoke      50-step SFT smoke (no Hub push); proves the train wiring on free tier"
 	@echo "  docs-serve     mkdocs serve on http://127.0.0.1:8000 (live reload)"
@@ -68,6 +70,18 @@ eval-smoke:
 	    --config configs/baseline.yaml \
 	    --name base_smoke --method none --limit 10 \
 	    --metrics-path results/metrics_smoke.json
+
+# Modal + vLLM eval (scripted; see src/atlas/cloud/eval_modal.py). Runs on a Modal
+# GPU, not via RUNNER — `modal` is a separate CLI you install on your laptop:
+#   pip install modal && modal token new
+#   modal secret create hf-token HUGGING_FACE_HUB_TOKEN=hf_xxx   # reuses the SFT secret
+# GPU defaults to L4 (bf16-native); override with ATLAS_EVAL_GPU=A10G. A T4 would force fp16.
+eval-modal-smoke:
+	modal run src/atlas/cloud/eval_modal.py --name base --method none --limit 50
+
+# The clean re-baseline: base + sft_v1 on one backend/dtype, fresh two-row metrics.json.
+eval-modal:
+	modal run src/atlas/cloud/eval_modal.py::suite --fresh
 
 # Phase 1 deliverable: full SFT run on UltraChat-200k. Pushes the adapter to
 # the HF Hub repo defined in configs/sft_qwen05b.yaml's output.hub_repo.
