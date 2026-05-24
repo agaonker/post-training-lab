@@ -35,14 +35,25 @@ def _build_model_args(cfg: Config, adapter: str | None) -> str:
         parts.append(f"revision={cfg.model.revision}")
     if adapter:
         parts.append(f"peft={adapter}")
+    parts.append(f"backend={cfg.eval.backend}")
+    if cfg.eval.backend == "vllm":
+        v = cfg.eval.vllm
+        parts.append(f"tensor_parallel_size={v.tensor_parallel_size}")
+        parts.append(f"data_parallel_size={v.data_parallel_size}")
     return ",".join(parts)
 
 
 def _build_lm(cfg: Config, adapter: str | None) -> Any:
-    """Instantiate lm-eval's HuggingFace LM once; reused across every task call.
+    """Instantiate the lm-eval LM once; reused across every task call.
 
-    Re-importing per task call would reload the weights — wasteful even at 0.5B.
+    Two backends, selected by ``cfg.eval.backend``: the default HF path (``HFLM``) and
+    vLLM (CUDA-only, the Modal fast path). Both lm-eval imports stay *inside* this
+    function so importing the harness in CI (no ``[eval]`` extra, no vllm) stays cheap
+    and the function remains a monkeypatch seam for the offline tests.
     """
+    if cfg.eval.backend == "vllm":
+        return _build_vllm_lm(cfg, adapter)
+
     from lm_eval.models.huggingface import HFLM
 
     kwargs: dict[str, Any] = {"pretrained": cfg.model.name, "dtype": cfg.model.dtype}
@@ -51,6 +62,36 @@ def _build_lm(cfg: Config, adapter: str | None) -> Any:
     if adapter:
         kwargs["peft"] = adapter
     return HFLM(**kwargs)
+
+
+def _build_vllm_lm(cfg: Config, adapter: str | None) -> Any:
+    """vLLM backend — fast continuous-batching generation on a CUDA GPU.
+
+    A Hub adapter is first materialized to a local directory: vLLM's LoRA loader takes a
+    local path (``lora_local_path``), not a Hub id, and derives ``enable_lora`` from it.
+    ``gpu_memory_utilization`` rides through ``**kwargs`` into the vLLM engine.
+    """
+    from lm_eval.models.vllm_causallms import VLLM
+
+    v = cfg.eval.vllm
+    kwargs: dict[str, Any] = {
+        "pretrained": cfg.model.name,
+        "dtype": cfg.model.dtype,
+        "seed": cfg.seed,
+        "tensor_parallel_size": v.tensor_parallel_size,
+        "data_parallel_size": v.data_parallel_size,
+        "max_lora_rank": v.max_lora_rank,
+        "gpu_memory_utilization": v.gpu_memory_utilization,
+    }
+    if cfg.model.revision:
+        kwargs["revision"] = cfg.model.revision
+    if v.max_model_len is not None:
+        kwargs["max_model_len"] = v.max_model_len
+    if adapter:
+        from huggingface_hub import snapshot_download
+
+        kwargs["lora_local_path"] = snapshot_download(adapter)
+    return VLLM(**kwargs)
 
 
 def _evaluate_one_task(
@@ -144,12 +185,7 @@ def _load_partial(path: Path, expected_config_hash: str) -> dict[str, Any]:
 
 
 def _utc_timestamp() -> str:
-    return (
-        datetime.now(UTC)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def run_eval(
@@ -234,6 +270,12 @@ def main() -> None:
     )
     parser.add_argument("--adapter", default=None, help="Optional HF Hub adapter repo id")
     parser.add_argument(
+        "--backend",
+        default=None,
+        choices=["hf", "vllm"],
+        help="Override eval.backend from the config (hf | vllm). vllm is CUDA-only.",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -253,6 +295,8 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    if args.backend:
+        cfg.eval.backend = args.backend  # excluded from config_hash, so no rehash needed
     entry = run_eval(
         cfg,
         name=args.name,

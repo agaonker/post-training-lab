@@ -17,7 +17,7 @@
 UV     ?= uv
 RUNNER ?= $(if $(and $(shell command -v uv 2>/dev/null),$(wildcard .venv)),uv run,)
 
-.PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke sft sft-smoke docs-serve docs-build clean
+.PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke eval-modal-check eval-modal-probe eval-modal-shell eval-modal-smoke eval-modal eval-modal-sft sft sft-smoke docs-serve docs-build clean
 
 help:
 	@echo "Targets:"
@@ -30,6 +30,13 @@ help:
 	@echo "  eval-baseline  full lm-eval on un-tuned Qwen2.5-0.5B — Phase 0 deliverable"
 	@echo "                 designed for Colab/GPU; slow on Mac CPU"
 	@echo "  eval-smoke     limit=10 per task; proves the harness wiring without compute"
+	@echo "  Modal eval — tiered loop, cheapest first (only pay for what a change can break):"
+	@echo "  eval-modal-check  local preflight: imports/entrypoints/config — seconds, no GPU"
+	@echo "  eval-modal-probe  ~1-2 min: one task (gsm8k), limit 5 — proves the vLLM path"
+	@echo "  eval-modal-shell  interactive container in the eval image (vllm+atlas+GPU)"
+	@echo "  eval-modal-smoke  Modal+vLLM wiring probe (limit=50, base only) — runs all 4 tasks"
+	@echo "  eval-modal     Modal+vLLM base + sft_v1, fresh metrics.json (the clean re-baseline)"
+	@echo "  eval-modal-sft Modal+vLLM sft_v1 only; APPENDS to metrics.json (preserves the base row)"
 	@echo "  sft            Phase 1: full SFT run from configs/sft_qwen05b.yaml; pushes adapter to HF Hub"
 	@echo "  sft-smoke      50-step SFT smoke (no Hub push); proves the train wiring on free tier"
 	@echo "  docs-serve     mkdocs serve on http://127.0.0.1:8000 (live reload)"
@@ -68,6 +75,45 @@ eval-smoke:
 	    --config configs/baseline.yaml \
 	    --name base_smoke --method none --limit 10 \
 	    --metrics-path results/metrics_smoke.json
+
+# Modal + vLLM eval (scripted; see src/atlas/cloud/eval_modal.py). Runs on a Modal
+# GPU, not via RUNNER — `modal` is a separate CLI you install on your laptop:
+#   pip install modal && modal token new
+#   modal secret create hf-token HUGGING_FACE_HUB_TOKEN=hf_xxx   # reuses the SFT secret
+# GPU defaults to L4 (bf16-native); override with ATLAS_EVAL_GPU=A10G. A T4 would force fp16.
+# Tiered fast loop. eval-modal-check runs OUTSIDE the GPU path: it must use the same Python
+# as the `modal` CLI (which holds the modal package), NOT `uv run` (.venv has no modal, and
+# using it would hide the local-import bugs this check exists to catch). The `modal` shim is
+# a pyenv bash wrapper (no python shebang to read), so default to the active pyenv interpreter
+# that backs it; fall back to python3 off-pyenv. Override: `make eval-modal-check MODAL_PY=...`.
+MODAL_PY ?= $(shell pyenv which python 2>/dev/null || command -v python3)
+eval-modal-check:
+	$(MODAL_PY) scripts/eval_modal_check.py
+
+# ~1-2 min: one small task, limit 5. The everyday "did my change break the wiring?" loop.
+eval-modal-probe:
+	modal run src/atlas/cloud/eval_modal.py::probe --task gsm8k --limit 5
+
+# Interactive shell in the eval image (same vllm+atlas+GPU+secret as run_eval_remote). Boot
+# once, iterate inside — `python -c "import vllm, atlas"`, rerun the harness, etc. Holds a GPU
+# until you exit, so it's for debugging, not idle sessions. `--cmd python` for a Python REPL.
+eval-modal-shell:
+	modal shell src/atlas/cloud/eval_modal.py::run_eval_remote
+
+eval-modal-smoke:
+	modal run src/atlas/cloud/eval_modal.py::main --name base --method none --limit 50
+
+# The clean re-baseline: base + sft_v1 on one backend/dtype, fresh two-row metrics.json.
+eval-modal:
+	modal run src/atlas/cloud/eval_modal.py::suite --fresh
+
+# Append the SFT eval as a second row WITHOUT wiping the committed base row. Use this
+# (not eval-modal, which is suite --fresh) once the base row is locked in: same image /
+# backend / dtype / config_hash as base, only the adapter differs -> still apples-to-apples.
+eval-modal-sft:
+	modal run src/atlas/cloud/eval_modal.py::main \
+	    --name sft_v1 --method sft \
+	    --adapter agaonker/atlas-sft-qwen05b-v1
 
 # Phase 1 deliverable: full SFT run on UltraChat-200k. Pushes the adapter to
 # the HF Hub repo defined in configs/sft_qwen05b.yaml's output.hub_repo.

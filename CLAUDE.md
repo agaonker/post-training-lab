@@ -8,7 +8,7 @@ A controlled comparison of post-training methods (SFT, DPO, KTO/ORPO, RLHF/PPO, 
 
 Code lives in `src/atlas/` and is importable as `atlas.*` (the project is named `post-training-lab`; the package is `atlas`).
 
-Currently in **Phase 0** (scaffolding): config system + eval harness are in place; training modules under `src/atlas/train/` are not yet implemented.
+Currently in **Phase 1** (SFT complete): config system + eval harness in place; SFT adapter `agaonker/atlas-sft-qwen05b-v1` trained and evaluated (see `experiments/002_sft_qwen05b.md`).
 
 ## Common commands
 

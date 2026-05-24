@@ -19,11 +19,16 @@ uv sync --extra dev --extra eval
 
 ## Results
 
-_Populated from `results/metrics.json` once the baseline eval and training runs land._
+All runs: `config_hash 6af9a640`, vLLM/bf16, Modal L4.
+IFEval = `prompt_level_strict_acc,none`. GSM8K = `exact_match,strict-match`.
 
-| Method | MMLU | GSM8K | TruthfulQA | IFEval | Judge win-rate vs SFT |
-|--------|------|-------|------------|--------|-----------------------|
-| _base_ | — | — | — | — | — |
+| Method | MMLU | GSM8K | TruthfulQA | IFEval (prompt strict) | Judge win-rate vs SFT |
+|--------|------|-------|------------|------------------------|-----------------------|
+| base | 0.4732 | 0.3404 | 0.4190 | 0.1885 | — |
+| sft_v1 (UltraChat-200k, 5k steps) | 0.4595 | 0.3207 | 0.4073 | 0.1719 | — |
+
+**Phase 1 finding:** SFT regressed on all metrics vs base, including IFEval (−1.7pp prompt-strict).
+Likely cause: UltraChat chat-template drift and/or task-distribution mismatch. See [`experiments/002_sft_qwen05b.md`](experiments/002_sft_qwen05b.md).
 
 ## Writeups
 
