@@ -25,6 +25,31 @@
         "ifeval/inst_level_loose_acc,none": 0.3369304556354916
       },
       "extras": {}
+    },
+    {
+      "name": "sft_v1",
+      "method": "sft",
+      "model": "Qwen/Qwen2.5-0.5B-Instruct",
+      "adapter": "agaonker/atlas-sft-qwen05b-v1",
+      "config_hash": "6af9a640",
+      "config_path": "configs/baseline.yaml",
+      "model_args": "pretrained=Qwen/Qwen2.5-0.5B-Instruct,dtype=bfloat16,peft=agaonker/atlas-sft-qwen05b-v1,backend=vllm,tensor_parallel_size=1,data_parallel_size=1",
+      "timestamp": "2026-05-23T22:32:45Z",
+      "metrics": {
+        "mmlu/sample_len": 285.0,
+        "mmlu/acc,none": 0.47017543859649125,
+        "gsm8k/sample_len": 5.0,
+        "gsm8k/exact_match,strict-match": 0.4,
+        "gsm8k/exact_match,flexible-extract": 0.4,
+        "truthfulqa_mc2/sample_len": 5.0,
+        "truthfulqa_mc2/acc,none": 0.42022639389868993,
+        "ifeval/sample_len": 5.0,
+        "ifeval/prompt_level_strict_acc,none": 0.2,
+        "ifeval/inst_level_strict_acc,none": 0.25,
+        "ifeval/prompt_level_loose_acc,none": 0.2,
+        "ifeval/inst_level_loose_acc,none": 0.25
+      },
+      "extras": {}
     }
   ]
 }
