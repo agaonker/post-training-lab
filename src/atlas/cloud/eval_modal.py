@@ -96,7 +96,7 @@ hf_cache = modal.Volume.from_name("atlas-hf-cache", create_if_missing=True)
     # without this Modal reuses the warm container, where the first run's vLLM EngineCore
     # subprocess still pins the GPU (~20/22 GiB) — so the second init fails the
     # gpu_memory_utilization check (OOM at startup). A fresh container = a clean GPU per run.
-    max_inputs=1,
+    single_use_containers=True,
 )
 def run_eval_remote(
     name: str,
