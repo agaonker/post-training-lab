@@ -297,13 +297,14 @@ Each phase has: goal, deliverable, success criterion. Skip none; resist scope cr
 
 ### Phase 0 — Scaffolding (1 weekend)
 - **Goal**: repo, env, baseline eval working end-to-end.
-- **Deliverable**: green CI; `results/metrics.json` populated with un-tuned Qwen2.5-0.5B-Instruct scores; README with the empty results table scaffolded.
+- **Deliverable**: green CI; `results/metrics.json` populated with un-tuned `Qwen2.5-0.5B` (pretrained, not `-Instruct`) scores; README with the empty results table scaffolded.
 - **Success**: `make eval-baseline` runs to completion on free Colab.
 
 ### Phase 1 — SFT + QLoRA (1 weekend)
-- **Goal**: SFT Qwen2.5-0.5B on a 5–10k slice of UltraChat/OpenHermes.
-- **Deliverable**: trained adapter pushed to HF Hub; `writeups/01_sft_and_qlora.md`; metrics row added.
-- **Success**: SFT model beats base on IFEval (instruction-following) by a clear margin.
+- **Goal**: SFT pretrained `Qwen2.5-0.5B` on a 5–10k slice of UltraChat/OpenHermes.
+- **Deliverable**: trained adapter pushed to HF Hub (planned: `agaonker/atlas-sft-qwen05b-v2`); `writeups/01_sft_and_qlora.md`; metrics row added.
+- **Success**: SFT model beats the pretrained base on IFEval `prompt_level_strict_acc` by a clear margin. Pretrained-base reference (committed `d8365bd`): IFEval prompt-strict `0.1238`, inst-strict `0.2278`. A successful SFT should land above the corresponding `-Instruct` numbers (prompt-strict `0.1885`, inst-strict `0.3070`) — i.e. it should at least recover what Qwen's own Instruct tuning got out of supervised data.
+- **Anchor for downstream phases**: this SFT adapter (and its Hub revision SHA) becomes the fixed starting point for Phases 2–5. Pin it in every downstream YAML. See TODOS.md.
 
 ### Phase 2 — DPO (1 weekend)
 - **Goal**: DPO on the SFT checkpoint with UltraFeedback-binarized.
@@ -386,8 +387,8 @@ Every method gets the same evaluation. Apples-to-apples is the whole point of th
 
 ## 9. Open decisions to make in Phase 0
 
-- [ ] Final repo name confirmed: `post-training-lab`
-- [ ] Base model: Qwen2.5-0.5B-Instruct (primary) + Qwen2.5-1.5B (stretch) — confirm Apache 2.0 fits the use case
+- [x] Final repo name confirmed: `post-training-lab`
+- [x] **Base model: pretrained `Qwen/Qwen2.5-0.5B`** (decided 2026-06-06 after `sft_v1` on `-Instruct` regressed uniformly — there's nothing for SFT to do on already-aligned weights; see `LESSONS.md`). Tokenizer is borrowed from `-Instruct` at SFT time (`cfg.model.tokenizer_name`). Stretch: Qwen2.5-1.5B.
 - [ ] KTO vs ORPO — pick one for Phase 5
 - [ ] LLM judge: Claude (via Anthropic API) or GPT-4o-mini (via OpenAI API) — pick one for cost predictability
 - [ ] Personal site / Substack URL for writeups

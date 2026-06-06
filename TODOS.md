@@ -52,25 +52,24 @@ harness level.
 
 ## From the Phase 0 plan-eng-review (2026-05-16, in progress)
 
-### P1 — Pin one SFT checkpoint as the anchor for Phases 2-5
+### P1 — Pin the Phase-1 SFT adapter as the anchor for Phases 2-5
 **Where:** [PROJECT.md §6](PROJECT.md), and every downstream config in `configs/`
 **Why:** DPO, PPO, GRPO, KTO/ORPO are all supposed to start from the SAME SFT
-checkpoint so the comparison is fair. Currently implicit ("the SFT checkpoint") —
-re-training SFT mid-project would silently change what the comparison means.
-**Fix:** Add to §6: "Phases 2-5 all start from the Phase 1 SFT adapter merged into
-the base. Pin its HF Hub revision SHA in every downstream YAML's
-`model.name` + `model.revision`." Optional belt-and-suspenders: assert it in
-train scripts.
-**Source:** Eng review 1A decision.
+checkpoint so the comparison is fair. With the base-model swap (2026-06-06,
+pretrained `Qwen2.5-0.5B`), the anchor is `sft_v2` (to-be-trained). `sft_v1`
+(`agaonker/atlas-sft-qwen05b-v1`, on `-Instruct`) is historical only — do NOT
+reference it from downstream configs.
+**Fix:** Once `sft_v2` is trained: add to §6: "Phases 2-5 all start from
+`agaonker/atlas-sft-qwen05b-v2`. Pin its HF Hub revision SHA in every
+downstream YAML's `model.name` + `model.revision`."
+**Source:** Eng review 1A decision; reframed after the base swap.
 
-### P1 — vLLM-on-Modal is required for Phase 4 GRPO, not optional
-**Where:** [PROJECT.md §3](PROJECT.md) (current "vllm (optional)") and §5.3 Modal recipe
-**Why:** GRPO rollouts on plain HF `.generate()` are 5-10x slower than vLLM —
-Phase 4's $5-20 budget assumes vLLM throughput. Without it the budget triples
-or the run doesn't finish.
-**Fix:** Reclassify vllm as "required for Phase 4" in §3; bake into the Modal
-image in §5.3. Update Phase 4 budget if it doesn't account for this.
-**Source:** Eng review 1C decision.
+### ~~P1 — vLLM-on-Modal is required for Phase 4 GRPO, not optional~~ (DONE 2026-05-23)
+**Landed in:** vLLM is in the Modal eval image
+([src/atlas/cloud/eval_modal.py](src/atlas/cloud/eval_modal.py)) and proved
+end-to-end on every base + sft_v1 + new pretrained-base eval. Phase 4 GRPO can
+re-use the same image. The pyproject.toml deliberately doesn't pin vllm
+(no macOS build); the Modal image carries it.
 
 ### P2 — Reward model architecture decision (deferred to Phase 3)
 **Where:** [PROJECT.md §9 Open Decisions](PROJECT.md)
@@ -110,6 +109,44 @@ sense if Modal wins.
 - **Defer** — finish through Phase 2 on free tier; revisit when Phase 3
   blocks. PROJECT.md §10 anti-goal "don't do Phase 7 before Phase 6"
   generalizes: don't pay for compute before you need it.
+
+---
+
+## From the base-model swap + sft_v1 regression debugging (2026-06-06)
+
+### P1 — Train `sft_v2` on the pretrained base
+**Where:** Phase 1 deliverable; [configs/sft_qwen05b.yaml](configs/sft_qwen05b.yaml),
+[src/atlas/train/sft.py](src/atlas/train/sft.py).
+**Why:** The diff (`8c21e04`) landed the fix (pretrained base + `assistant_only_loss`
++ chat-template patch) but no adapter exists yet for the new pipeline.
+**Fix:** `modal run` the SFT training; push to `agaonker/atlas-sft-qwen05b-v2`;
+eval on Modal; append the new row.
+
+### P1 — Rewrite [experiments/002_sft_qwen05b.md](experiments/002_sft_qwen05b.md) once `sft_v2` lands
+**Why:** Current file leads with a refuted hypothesis ("chat-template drift
+(most likely)") and reports the old `-Instruct` numbers. It's not just stale —
+the lead diagnosis is wrong (see [writeups/sft_regression_diagnosis.html](writeups/sft_regression_diagnosis.html)).
+**Fix:** Wait for `sft_v2` numbers, then rewrite end-to-end with: pretrained-base
+framing, the real diagnosis (no `assistant_only_loss` + re-SFT-ing aligned
+weights), `sft_v2` results vs both pretrained base and `-Instruct` reference.
+
+### P2 — Update [README.md](README.md) results table after `sft_v2`
+**Why:** Currently shows only the old `-Instruct` base + `sft_v1` rows and cites
+the refuted "chat-template drift" cause. Misleads anyone landing on the repo.
+**Fix:** Once `sft_v2` exists: replace with three rows (`base` pretrained,
+`sft_v1` historical with a note, `sft_v2`); drop the wrong cause sentence; link
+to `writeups/sft_regression_diagnosis.html` and `LESSONS.md`.
+
+### P3 — [scripts/explore_model.py](scripts/explore_model.py) hardcodes `Qwen2.5-0.5B-Instruct`
+**Why:** Inconsistent with the new pretrained base; if anyone runs it they'll
+explore the wrong model. Not load-bearing — script is for one-shot inspection
+only — but it'll confuse a future reader.
+**Fix:** Switch the constant to `Qwen/Qwen2.5-0.5B`. Trivial.
+
+### P3 — Author `writeups/01_sft_and_qlora.md` once `sft_v2` lands
+**Why:** Phase 1 deliverable per [PROJECT.md §6](PROJECT.md); the polished
+writeup hasn't been written yet. The diagnosis HTML records the *fix*; the Phase 1
+writeup should record the *story* with final numbers.
 
 ---
 
