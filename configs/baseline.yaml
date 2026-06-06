@@ -1,4 +1,4 @@
-# Baseline: un-tuned Qwen2.5-0.5B-Instruct. Eval-only — no training blocks.
+# Baseline: pretrained Qwen2.5-0.5B (not -Instruct). Eval-only — no training blocks.
 # All model / eval / seed settings inherit from base.yaml.
 #
 # This file exists so Phase 0's baseline run has a config path of its own and

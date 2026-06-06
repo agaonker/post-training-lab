@@ -55,7 +55,7 @@ def test_build_model_args_baseline_and_adapter():
     cfg = load_config(CONFIGS / "baseline.yaml")
 
     args = _build_model_args(cfg, adapter=None)
-    assert "pretrained=Qwen/Qwen2.5-0.5B-Instruct" in args
+    assert "pretrained=Qwen/Qwen2.5-0.5B" in args
     assert "dtype=bfloat16" in args
     assert "peft=" not in args
 
@@ -101,7 +101,7 @@ def test_build_lm_hf_passes_pretrained_dtype_and_peft(monkeypatch):
 
     tag, kw = harness._build_lm(cfg, adapter="user/atlas-sft-v1")
     assert tag == "HFLM"
-    assert kw["pretrained"] == "Qwen/Qwen2.5-0.5B-Instruct"
+    assert kw["pretrained"] == "Qwen/Qwen2.5-0.5B"
     assert kw["dtype"] == "bfloat16"
     assert kw["peft"] == "user/atlas-sft-v1"
 
@@ -116,7 +116,7 @@ def test_build_lm_vllm_downloads_adapter_and_passes_knobs(monkeypatch):
     cfg.eval.backend = "vllm"
 
     kw = harness._build_lm(cfg, adapter="user/atlas-sft-v1")
-    assert kw["pretrained"] == "Qwen/Qwen2.5-0.5B-Instruct"
+    assert kw["pretrained"] == "Qwen/Qwen2.5-0.5B"
     assert kw["dtype"] == "bfloat16"
     assert kw["seed"] == cfg.seed
     assert kw["max_lora_rank"] == 16
@@ -205,7 +205,7 @@ def test_run_eval_writes_well_formed_entry(tmp_path: Path, monkeypatch):
     assert entry["name"] == "base"
     assert entry["method"] == "none"
     assert entry["adapter"] is None
-    assert entry["model"] == "Qwen/Qwen2.5-0.5B-Instruct"
+    assert entry["model"] == "Qwen/Qwen2.5-0.5B"
     assert entry["config_hash"] == cfg.config_hash
     assert entry["metrics"]["mmlu/acc,none"] == 0.40
     assert entry["metrics"]["ifeval/prompt_level_strict_acc,none"] == 0.25

@@ -34,10 +34,15 @@ from huggingface_hub.errors import HfHubHTTPError
 
 from atlas.data.sft_data import load_ultrachat_sft
 from atlas.models.adapters import make_lora_config
-from atlas.models.base import load_base_model_and_tokenizer
+from atlas.models.base import (
+    load_base_model_and_tokenizer,
+    patch_chat_template_for_assistant_mask,
+)
 from atlas.utils.config import Config, load_config, set_global_seed
 
 SUPPORTED_DATASETS = {"HuggingFaceH4/ultrachat_200k": load_ultrachat_sft}
+
+DEFAULT_TEMPLATE_AUDIT_PATH = Path("results/sft_template_audit.jsonl")
 
 
 def _build_train_config(cfg: Config, max_steps_override: int | None) -> Any:
@@ -58,9 +63,7 @@ def _build_train_config(cfg: Config, max_steps_override: int | None) -> Any:
 def _load_dataset(cfg: Config) -> Any:
     """Dispatch on ``cfg.dataset.name``. Only UltraChat is wired for Phase 1."""
     if cfg.dataset is None:
-        raise ValueError(
-            "cfg.dataset is required for SFT; add a `dataset:` block to your YAML."
-        )
+        raise ValueError("cfg.dataset is required for SFT; add a `dataset:` block to your YAML.")
     loader = SUPPORTED_DATASETS.get(cfg.dataset.name)
     if loader is None:
         raise ValueError(
@@ -113,9 +116,7 @@ def run_sft(
 
     set_global_seed(cfg.seed)
 
-    hub_repo: str | None = (
-        cfg.output.hub_repo if (push_to_hub and cfg.output is not None) else None
-    )
+    hub_repo: str | None = cfg.output.hub_repo if (push_to_hub and cfg.output is not None) else None
     if hub_repo is not None:
         # Fail in ~200ms instead of 3 hours if the token can't push.
         _preflight_hub_access(hub_repo)
@@ -135,6 +136,13 @@ def run_sft(
 
     result = trainer.train()
     trainer.save_model(train_config.output_dir)
+    # Explicitly persist the tokenizer next to the adapter. When the base is the
+    # pretrained Qwen2.5-0.5B but training used the Instruct tokenizer (different
+    # eos / template — see cfg.model.tokenizer_name), eval must load the saved
+    # tokenizer to terminate generation on <|im_end|> instead of falling back to
+    # the base's <|endoftext|>. processing_class auto-save in TRL has varied
+    # across versions; this makes the contract explicit.
+    tokenizer.save_pretrained(train_config.output_dir)
 
     pushed_to: str | None = None
     push_error: str | None = None
@@ -171,18 +179,87 @@ def run_sft(
         "output_dir": train_config.output_dir,
         "hub_repo": pushed_to,
         "push_error": push_error,
-        "training_loss": float(result.training_loss)
-        if result.training_loss is not None
-        else None,
+        "training_loss": float(result.training_loss) if result.training_loss is not None else None,
         "global_step": result.global_step,
         "n_train_samples": len(train_ds),
     }
 
 
+def dump_template_audit(
+    cfg: Config,
+    *,
+    n_examples: int = 5,
+    out_path: Path = DEFAULT_TEMPLATE_AUDIT_PATH,
+) -> Path:
+    """Render the first ``n_examples`` rows through the chat template and dump
+    the result, with assistant-token masks, to ``out_path`` as JSON-lines.
+
+    Reviewer test: open the file and confirm tokens in user/system spans carry
+    ``assistant_mask=0`` while assistant spans carry ``1``. Byte-level evidence
+    that ``assistant_only_loss=True`` actually masks the right tokens.
+
+    Loads only the tokenizer (no model weights) — runs on CPU/Mac in seconds.
+    """
+    from transformers import AutoTokenizer
+
+    tokenizer_repo = cfg.model.tokenizer_name or cfg.model.name
+    tok_kwargs: dict[str, Any] = {}
+    if cfg.model.revision and tokenizer_repo == cfg.model.name:
+        tok_kwargs["revision"] = cfg.model.revision
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_repo, **tok_kwargs)
+    # Apply the same template patch the production training path uses, so the
+    # audit reflects what TRL will actually see — not the raw HF template.
+    patch_chat_template_for_assistant_mask(tokenizer)
+
+    ds = _load_dataset(cfg)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    head_lim = 96  # how many leading tokens to include per example
+
+    with out_path.open("w") as f:
+        for i in range(min(n_examples, len(ds))):
+            messages = ds[i]["messages"]
+            rendered: dict[str, Any]
+            try:
+                # ``apply_chat_template`` has many overloads; the runtime return
+                # when return_dict=True is a dict, but the stub's declared union
+                # doesn't include that case — cast through Any so mypy doesn't
+                # fight us. Behavior at runtime is unchanged.
+                rendered = tokenizer.apply_chat_template(  # type: ignore[assignment]
+                    messages,
+                    tokenize=True,
+                    return_assistant_tokens_mask=True,
+                    return_dict=True,
+                )
+            except (ValueError, TypeError) as e:
+                # Template lacks {% generation %} markers or tokenizer doesn't
+                # support the mask kwarg. Surface the failure clearly — the
+                # whole point of the audit is to catch this before training.
+                rendered = {
+                    "error": f"{type(e).__name__}: {e}",
+                    "input_ids": tokenizer.apply_chat_template(messages, tokenize=True),
+                    "assistant_masks": None,
+                }
+            input_ids: list[int] = rendered.get("input_ids", []) or []
+            mask = rendered.get("assistant_masks")
+            decoded = [tokenizer.decode([t]) for t in input_ids[:head_lim]]
+            record = {
+                "idx": i,
+                "tokenizer_repo": tokenizer_repo,
+                "n_tokens": len(input_ids),
+                "input_ids_head": input_ids[:head_lim],
+                "assistant_mask_head": mask[:head_lim] if mask is not None else None,
+                "decoded_head": decoded,
+                "rendered_text": tokenizer.apply_chat_template(messages, tokenize=False)[:1200],
+                "error": rendered.get("error"),
+            }
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    print(f"OK: {min(n_examples, len(ds))} examples written to {out_path}")
+    return out_path
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Train an SFT adapter from an experiment YAML."
-    )
+    parser = argparse.ArgumentParser(description="Train an SFT adapter from an experiment YAML.")
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument(
         "--max-steps",
@@ -195,9 +272,21 @@ def main() -> None:
         action="store_true",
         help="Skip the final HF Hub push even if cfg.output.hub_repo is set.",
     )
+    parser.add_argument(
+        "--dump-template-audit",
+        action="store_true",
+        help=(
+            "Render the first N dataset rows through the chat template, write "
+            "assistant masks to results/sft_template_audit.jsonl, and exit. "
+            "Loads no model weights; runs on CPU."
+        ),
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    if args.dump_template_audit:
+        dump_template_audit(cfg)
+        return
     summary = run_sft(
         cfg,
         max_steps_override=args.max_steps,

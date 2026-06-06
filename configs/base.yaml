@@ -5,10 +5,17 @@
 # (e.g. 2.0e-4, not 2e-4) — PyYAML parses the dot-less form as a *string*.
 
 model:
-  name: Qwen/Qwen2.5-0.5B-Instruct
+  # Pretrained (not -Instruct). A methods comparison needs an un-aligned starting
+  # point so SFT/DPO/etc. have something to actually move; Phase 1 v1 ran on
+  # -Instruct and regressed uniformly because the model was already chat-tuned.
+  # See writeups/sft_regression_diagnosis.html for the audit.
+  name: Qwen/Qwen2.5-0.5B
   # Pin to a commit SHA once confirmed, for reproducibility. null = latest.
   revision: null
   dtype: bfloat16
+  # Defaults to model.name. SFT overrides this to Qwen2.5-0.5B-Instruct (same
+  # vocab) so the trainer gets correct eos / chat_template markers.
+  tokenizer_name: null
 
 quant:
   load_in_4bit: true

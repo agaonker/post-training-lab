@@ -30,6 +30,12 @@ class ModelCfg(BaseModel):
     name: str
     revision: str | None = None  # pin to a commit SHA for reproducibility; null = latest
     dtype: str = "bfloat16"  # bfloat16 | float16 | float32
+    # Optional override: load the tokenizer from a different repo than the model.
+    # Used when the chosen base is the pretrained Qwen2.5-0.5B (eos == pad, no
+    # {% generation %} markers in chat_template) but training needs the Instruct
+    # variant's tokenizer config (correct eos, markers for assistant_only_loss).
+    # The two share a byte-identical vocab. null = use ``name`` for both.
+    tokenizer_name: str | None = None
 
 
 class QuantCfg(BaseModel):

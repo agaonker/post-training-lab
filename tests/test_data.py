@@ -40,7 +40,7 @@ def test_merge_dicts_replaces_lists_wholesale():
 
 def test_base_yaml_loads_and_validates():
     cfg = load_config(CONFIGS / "base.yaml")
-    assert cfg.model.name == "Qwen/Qwen2.5-0.5B-Instruct"
+    assert cfg.model.name == "Qwen/Qwen2.5-0.5B"
     assert cfg.lora.r == 16
     assert "ifeval" in cfg.eval.tasks
     assert cfg.eval.tasks["mmlu"].limit == 1000
@@ -49,17 +49,14 @@ def test_base_yaml_loads_and_validates():
 
 
 def test_load_config_merges_experiment_over_base(tmp_path):
-    (tmp_path / "base.yaml").write_text(
-        "model:\n  name: qwen\n  dtype: bfloat16\nseed: 42\n"
-    )
+    (tmp_path / "base.yaml").write_text("model:\n  name: qwen\n  dtype: bfloat16\nseed: 42\n")
     exp = tmp_path / "exp.yaml"
     exp.write_text(
-        "model:\n  dtype: float16\n"
-        "train:\n  output_dir: outputs/exp\n  learning_rate: 2.0e-4\n"
+        "model:\n  dtype: float16\ntrain:\n  output_dir: outputs/exp\n  learning_rate: 2.0e-4\n"
     )
     cfg = load_config(exp)
-    assert cfg.model.name == "qwen"        # inherited from base, untouched
-    assert cfg.model.dtype == "float16"    # overridden by the experiment
+    assert cfg.model.name == "qwen"  # inherited from base, untouched
+    assert cfg.model.dtype == "float16"  # overridden by the experiment
     assert cfg.train.output_dir == "outputs/exp"
     # TrainCfg is a permissive passthrough — unknown TRL knobs survive intact
     assert cfg.train.model_dump()["learning_rate"] == 2.0e-4

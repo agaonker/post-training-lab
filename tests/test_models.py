@@ -18,12 +18,13 @@ from atlas.utils.config import Config
 
 def _cfg(**overrides) -> Config:
     """Build a Config rooted at the project defaults with overrides applied."""
-    payload: dict = {"model": {"name": "Qwen/Qwen2.5-0.5B-Instruct"}}
+    payload: dict = {"model": {"name": "Qwen/Qwen2.5-0.5B"}}
     payload.update(overrides)
     return Config.model_validate(payload)
 
 
 # --- make_lora_config -----------------------------------------------------------
+
 
 def test_make_lora_config_propagates_yaml_defaults():
     """Defaults defined on LoraCfg flow through to the peft.LoraConfig."""
@@ -57,6 +58,7 @@ def test_make_lora_config_supports_seq_cls_for_reward_model():
 
 # --- _resolve_dtype -------------------------------------------------------------
 
+
 def test_resolve_dtype_maps_known_names():
     import torch as _torch
 
@@ -72,6 +74,7 @@ def test_resolve_dtype_rejects_unknown():
 
 # --- _build_quant_config --------------------------------------------------------
 
+
 def test_quant_config_is_none_when_load_in_4bit_false(monkeypatch):
     cfg = _cfg(quant={"load_in_4bit": False})
     assert base._build_quant_config(cfg) is None
@@ -85,6 +88,7 @@ def test_quant_config_is_none_without_cuda(monkeypatch):
 
 
 # --- load_base_model_and_tokenizer ---------------------------------------------
+
 
 class _FakeTokenizer:
     def __init__(self, has_pad: bool):
@@ -131,7 +135,7 @@ def test_load_base_preserves_existing_pad_token(monkeypatch):
 def test_load_base_passes_revision_through(monkeypatch):
     """Pinned commit SHA flows to BOTH the model and tokenizer loaders."""
     seen = _patch_loaders(monkeypatch, has_pad=True)
-    cfg = _cfg(model={"name": "Qwen/Qwen2.5-0.5B-Instruct", "revision": "abc123"})
+    cfg = _cfg(model={"name": "Qwen/Qwen2.5-0.5B", "revision": "abc123"})
     base.load_base_model_and_tokenizer(cfg)
     assert seen["model_kwargs"]["revision"] == "abc123"
     assert seen["tok_kwargs"]["revision"] == "abc123"
@@ -170,7 +174,98 @@ def test_load_base_resolves_dtype(monkeypatch):
     import torch as _torch
 
     seen = _patch_loaders(monkeypatch, has_pad=True)
-    cfg = _cfg(model={"name": "Qwen/Qwen2.5-0.5B-Instruct", "dtype": "float16"})
+    cfg = _cfg(model={"name": "Qwen/Qwen2.5-0.5B", "dtype": "float16"})
     base.load_base_model_and_tokenizer(cfg)
     assert seen["model_kwargs"]["dtype"] == _torch.float16
     assert "torch_dtype" not in seen["model_kwargs"]
+
+
+def test_load_base_routes_tokenizer_to_override_when_set(monkeypatch):
+    """When cfg.model.tokenizer_name is set, the tokenizer loads from that repo
+    instead of cfg.model.name (so the SFT path can pick up the Instruct
+    tokenizer's eos / patched chat_template while keeping pretrained weights)."""
+    seen = _patch_loaders(monkeypatch, has_pad=True)
+    cfg = _cfg(
+        model={
+            "name": "Qwen/Qwen2.5-0.5B",
+            "tokenizer_name": "Qwen/Qwen2.5-0.5B-Instruct",
+        }
+    )
+    base.load_base_model_and_tokenizer(cfg)
+    assert seen["model_name"] == "Qwen/Qwen2.5-0.5B"
+    assert seen["tok_name"] == "Qwen/Qwen2.5-0.5B-Instruct"
+
+
+def test_load_base_revision_skipped_when_tokenizer_repo_differs(monkeypatch):
+    """A pinned commit SHA from cfg.model.revision targets cfg.model.name only.
+    Passing it to a different tokenizer repo would either 404 or load the wrong
+    snapshot — drop it instead."""
+    seen = _patch_loaders(monkeypatch, has_pad=True)
+    cfg = _cfg(
+        model={
+            "name": "Qwen/Qwen2.5-0.5B",
+            "revision": "abc123",
+            "tokenizer_name": "Qwen/Qwen2.5-0.5B-Instruct",
+        }
+    )
+    base.load_base_model_and_tokenizer(cfg)
+    assert seen["model_kwargs"]["revision"] == "abc123"
+    assert "revision" not in seen["tok_kwargs"]
+
+
+# --- patch_chat_template_for_assistant_mask -------------------------------------
+
+
+class _FakeTok:
+    def __init__(self, template: str | None):
+        self.chat_template = template
+
+
+def test_patch_template_noop_when_markers_already_present():
+    tok = _FakeTok("hello {% generation %}world{% endgeneration %}")
+    original = tok.chat_template
+    assert base.patch_chat_template_for_assistant_mask(tok) is False
+    assert tok.chat_template == original
+
+
+def test_patch_template_noop_on_unrecognized_template():
+    """If Qwen reshapes their template, the patcher refuses rather than guess.
+    Downstream the dump-template-audit will show mask == all-zeros — loud."""
+    tok = _FakeTok("totally unrelated jinja blob")
+    assert base.patch_chat_template_for_assistant_mask(tok) is False
+    assert tok.chat_template == "totally unrelated jinja blob"
+
+
+def test_patch_template_noop_on_missing_template():
+    tok = _FakeTok(None)
+    assert base.patch_chat_template_for_assistant_mask(tok) is False
+    assert tok.chat_template is None
+
+
+def test_patch_template_injects_markers_around_assistant_branch():
+    """The canary: when the input matches Qwen2.5-0.5B-Instruct's exact combined
+    user / system / assistant-no-tools branch, the patcher splits it in two and
+    wraps the assistant content in generation markers — and only the assistant
+    content, not the leading <|im_start|>assistant\\n prompt prefix."""
+    tok = _FakeTok(
+        "prefix\n"
+        '    {%- if (message.role == "user") or '
+        '(message.role == "system" and not loop.first) or '
+        '(message.role == "assistant" and not message.tool_calls) %}\n'
+        "        {{- '<|im_start|>' + message.role + '\\n' + message.content + "
+        "'<|im_end|>' + '\\n' }}\n"
+        "    suffix\n"
+    )
+    assert base.patch_chat_template_for_assistant_mask(tok) is True
+    out = tok.chat_template
+    assert out is not None
+    assert "{% generation %}" in out
+    assert "{% endgeneration %}" in out
+    # The assistant prefix stays outside markers — the model is conditioned on
+    # it, not generating it.
+    prefix_pos = out.index("'<|im_start|>' + message.role + '\\n' }}")
+    gen_pos = out.index("{% generation %}")
+    assert prefix_pos < gen_pos
+    # User / system branch stays unchanged (no markers leaked into it).
+    user_branch = out.split('{%- elif message.role == "assistant"')[0]
+    assert "{% generation %}" not in user_branch

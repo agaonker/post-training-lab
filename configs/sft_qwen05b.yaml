@@ -1,4 +1,4 @@
-# Phase 1: SFT on Qwen2.5-0.5B-Instruct with QLoRA on UltraChat-200k.
+# Phase 1: SFT on pretrained Qwen2.5-0.5B with QLoRA on UltraChat-200k.
 #
 # Inherits model / lora / quant / eval / seed from base.yaml; only adds the
 # Phase-1-specific blocks (dataset / train / output). cfg.train is a deliberate
@@ -7,6 +7,13 @@
 #
 # YAML float gotcha: always write 2.0e-4, not 2e-4 (PyYAML parses the dot-less
 # form as a string).
+
+model:
+  # Load the tokenizer from the Instruct variant (same byte-identical vocab as
+  # the base, but with correct eos = <|im_end|> and a chat_template that ships
+  # {% generation %} markers — required for assistant_only_loss below).
+  # The base/model weights still come from cfg.model.name in base.yaml.
+  tokenizer_name: Qwen/Qwen2.5-0.5B-Instruct
 
 dataset:
   name: HuggingFaceH4/ultrachat_200k
@@ -27,6 +34,13 @@ train:
   num_train_epochs: 1
   per_device_train_batch_size: 4
   gradient_accumulation_steps: 4  # effective batch = 16
+  # Mask user/system turns out of the loss. TRL 1.4 defaults this to False; in
+  # sft_v1 the loss was computed over the whole rendered conversation, so a
+  # large share of the gradient was teaching the 0.5B to generate user turns
+  # — visible as a small uniform regression across every eval. Requires the
+  # tokenizer's chat_template to ship {% generation %} markers (Instruct does,
+  # base does not — see model.tokenizer_name above).
+  assistant_only_loss: true
   warmup_ratio: 0.03
   # Required on T4 to fit a 0.5B + 4-bit + LoRA + batch=4 inside 16GB.
   gradient_checkpointing: true

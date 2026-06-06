@@ -10,6 +10,10 @@ reason; importing it eagerly here would break ``uv sync`` on macOS.
 The tokenizer's ``pad_token`` is forced to ``eos_token`` when missing because
 TRL's ``SFTTrainer`` requires a pad token; Qwen2.5's tokenizer ships without
 one set, and the resulting error mid-training is opaque.
+
+We also patch Qwen's chat_template to inject ``{% generation %}`` markers
+around assistant content — required for TRL's ``assistant_only_loss=True`` to
+build a non-empty mask. See :func:`patch_chat_template_for_assistant_mask`.
 """
 
 from __future__ import annotations
@@ -33,11 +37,62 @@ _DTYPE_MAP: dict[str, torch.dtype] = {
 }
 
 
+# Qwen2.5's chat_template wraps user / system / non-tool-calling assistant turns
+# in a *single* combined branch — there's no place to inject the {% generation %}
+# / {% endgeneration %} pair that TRL's ``assistant_only_loss=True`` needs. The
+# patcher splits that combined branch in two: keep user/system in the original
+# shape and lift assistant-no-tools into its own branch with markers around the
+# content + closing <|im_end|>. (The leading <|im_start|>assistant\n stays
+# outside the markers — it's the prompt the model is conditioned on, not the
+# generation.) Tool-calling assistant turns and tool responses are untouched;
+# they don't appear in UltraChat anyway.
+_QWEN_COMBINED_BRANCH = (
+    '{%- if (message.role == "user") or (message.role == "system" and not loop.first) '
+    'or (message.role == "assistant" and not message.tool_calls) %}\n'
+    "        {{- '<|im_start|>' + message.role + '\\n' + message.content + "
+    "'<|im_end|>' + '\\n' }}"
+)
+
+_QWEN_SPLIT_BRANCH = (
+    '{%- if (message.role == "user") or (message.role == "system" and not loop.first) %}\n'
+    "        {{- '<|im_start|>' + message.role + '\\n' + message.content + "
+    "'<|im_end|>' + '\\n' }}\n"
+    '    {%- elif message.role == "assistant" and not message.tool_calls %}\n'
+    "        {{- '<|im_start|>' + message.role + '\\n' }}"
+    "{% generation %}{{- message.content + '<|im_end|>' }}{% endgeneration %}"
+    "{{- '\\n' }}"
+)
+
+
+def patch_chat_template_for_assistant_mask(tokenizer: Any) -> bool:
+    """Inject ``{% generation %}`` markers into Qwen2.5's chat_template so TRL's
+    ``assistant_only_loss=True`` (and ``return_assistant_tokens_mask=True``)
+    actually produce a non-empty mask.
+
+    Idempotent: returns ``False`` if the template already has markers or doesn't
+    match the expected Qwen2.5 shape; returns ``True`` if it patched something.
+
+    Verified empirically against the Qwen/Qwen2.5-0.5B-Instruct tokenizer at the
+    project's pinned transformers version. If Qwen reshapes their template, this
+    helper will no-op rather than scramble — the no-op path raises downstream at
+    SFT time when the audit shows mask == all zeros, so the failure is loud.
+    """
+    template = getattr(tokenizer, "chat_template", None)
+    if not template:
+        return False
+    if "{% generation %}" in template:
+        return False
+    if _QWEN_COMBINED_BRANCH not in template:
+        return False
+    tokenizer.chat_template = template.replace(
+        _QWEN_COMBINED_BRANCH, _QWEN_SPLIT_BRANCH, 1
+    )
+    return True
+
+
 def _resolve_dtype(name: str) -> torch.dtype:
     if name not in _DTYPE_MAP:
-        raise ValueError(
-            f"Unsupported dtype {name!r}; expected one of {sorted(_DTYPE_MAP)}"
-        )
+        raise ValueError(f"Unsupported dtype {name!r}; expected one of {sorted(_DTYPE_MAP)}")
     return _DTYPE_MAP[name]
 
 
@@ -103,12 +158,19 @@ def load_base_model_and_tokenizer(
 
     model: Any = AutoModelForCausalLM.from_pretrained(cfg.model.name, **model_kwargs)
 
+    # Tokenizer may live in a different repo than the model. The pretrained
+    # Qwen2.5-0.5B base ships eos == pad and a chat_template without
+    # {% generation %} markers; loading the Instruct tokenizer (same vocab,
+    # correct eos = <|im_end|>, markers present) lets SFT train cleanly on the
+    # pretrained weights. Revision is only applied when tokenizer matches model.
+    tokenizer_repo = cfg.model.tokenizer_name or cfg.model.name
     tok_kwargs: dict[str, Any] = {}
-    if cfg.model.revision:
+    if cfg.model.revision and tokenizer_repo == cfg.model.name:
         tok_kwargs["revision"] = cfg.model.revision
-    tokenizer = AutoTokenizer.from_pretrained(cfg.model.name, **tok_kwargs)
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_repo, **tok_kwargs)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    patch_chat_template_for_assistant_mask(tokenizer)
 
     if adapter is not None:
         from peft import PeftModel

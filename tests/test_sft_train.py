@@ -20,12 +20,13 @@ CONFIGS = REPO_ROOT / "configs"
 
 
 def _cfg(**overrides) -> Config:
-    payload: dict = {"model": {"name": "Qwen/Qwen2.5-0.5B-Instruct"}}
+    payload: dict = {"model": {"name": "Qwen/Qwen2.5-0.5B"}}
     payload.update(overrides)
     return Config.model_validate(payload)
 
 
 # --- _load_dataset --------------------------------------------------------------
+
 
 def test_load_dataset_raises_when_dataset_block_missing():
     """A YAML without a dataset block must fail loudly, not start training on nothing."""
@@ -35,9 +36,7 @@ def test_load_dataset_raises_when_dataset_block_missing():
 
 
 def test_load_dataset_raises_on_unsupported_dataset_name():
-    cfg = _cfg(
-        dataset={"name": "teknium/OpenHermes-2.5", "split": "train", "n_samples": 5}
-    )
+    cfg = _cfg(dataset={"name": "teknium/OpenHermes-2.5", "split": "train", "n_samples": 5})
     with pytest.raises(ValueError, match="Unsupported SFT dataset"):
         sft._load_dataset(cfg)
 
@@ -54,9 +53,7 @@ def test_load_dataset_dispatches_to_ultrachat_loader(monkeypatch):
 
     # Patch the entry registered in SUPPORTED_DATASETS, not the module-level
     # import, so dispatch goes through the actual table.
-    monkeypatch.setitem(
-        sft.SUPPORTED_DATASETS, "HuggingFaceH4/ultrachat_200k", fake_loader
-    )
+    monkeypatch.setitem(sft.SUPPORTED_DATASETS, "HuggingFaceH4/ultrachat_200k", fake_loader)
     cfg = _cfg(
         dataset={
             "name": "HuggingFaceH4/ultrachat_200k",
@@ -71,6 +68,7 @@ def test_load_dataset_dispatches_to_ultrachat_loader(monkeypatch):
 
 
 # --- _build_train_config --------------------------------------------------------
+
 
 class _FakeSFTConfig:
     """Stand-in for trl.SFTConfig that just records its kwargs."""
@@ -124,6 +122,7 @@ def test_build_train_config_handles_missing_train_block(monkeypatch):
 
 
 # --- _preflight_hub_access -----------------------------------------------------
+
 
 class _FakeHfApi:
     """Captures whoami/create_repo calls and lets tests inject failures."""
@@ -189,13 +188,17 @@ def test_preflight_hub_access_raises_on_create_repo_403(monkeypatch):
 
 # --- configs/sft_qwen05b.yaml canary -------------------------------------------
 
+
 def test_sft_qwen05b_yaml_loads_and_merges():
     """End-to-end load of the Phase 1 YAML — catches typos that would crash mid-run."""
     cfg = load_config(CONFIGS / "sft_qwen05b.yaml")
     # Inherited from base.yaml
-    assert cfg.model.name == "Qwen/Qwen2.5-0.5B-Instruct"
+    assert cfg.model.name == "Qwen/Qwen2.5-0.5B"
     assert cfg.lora.r == 16
     assert cfg.quant.load_in_4bit is True
+    # SFT-specific overlay: tokenizer comes from the Instruct variant so the
+    # template ships {% generation %} markers; model weights still come from base.
+    assert cfg.model.tokenizer_name == "Qwen/Qwen2.5-0.5B-Instruct"
     # Phase-1-specific blocks
     assert cfg.dataset is not None
     assert cfg.dataset.name == "HuggingFaceH4/ultrachat_200k"
@@ -204,6 +207,9 @@ def test_sft_qwen05b_yaml_loads_and_merges():
     # The YAML float must be 2.0e-4 (parsed as float), not 2e-4 (parsed as str).
     assert cfg.train.model_dump()["learning_rate"] == 2.0e-4
     assert cfg.train.output_dir == "outputs/sft_qwen05b_v1"
+    # assistant_only_loss must flow through the TrainCfg passthrough so TRL's
+    # SFTConfig picks it up; this is the fix for the sft_v1 uniform regression.
+    assert cfg.train.model_dump()["assistant_only_loss"] is True
     # Reserved fields with `_` aren't passed through — sanity check the passthrough
     # only forwards what the user wrote.
     assert "gradient_checkpointing" in cfg.train.model_dump()

@@ -33,6 +33,8 @@ def _build_model_args(cfg: Config, adapter: str | None) -> str:
     parts = [f"pretrained={cfg.model.name}", f"dtype={cfg.model.dtype}"]
     if cfg.model.revision:
         parts.append(f"revision={cfg.model.revision}")
+    if cfg.model.tokenizer_name:
+        parts.append(f"tokenizer={cfg.model.tokenizer_name}")
     if adapter:
         parts.append(f"peft={adapter}")
     parts.append(f"backend={cfg.eval.backend}")
@@ -59,6 +61,8 @@ def _build_lm(cfg: Config, adapter: str | None) -> Any:
     kwargs: dict[str, Any] = {"pretrained": cfg.model.name, "dtype": cfg.model.dtype}
     if cfg.model.revision:
         kwargs["revision"] = cfg.model.revision
+    if cfg.model.tokenizer_name:
+        kwargs["tokenizer"] = cfg.model.tokenizer_name
     if adapter:
         kwargs["peft"] = adapter
     return HFLM(**kwargs)
@@ -85,6 +89,8 @@ def _build_vllm_lm(cfg: Config, adapter: str | None) -> Any:
     }
     if cfg.model.revision:
         kwargs["revision"] = cfg.model.revision
+    if cfg.model.tokenizer_name:
+        kwargs["tokenizer"] = cfg.model.tokenizer_name
     if v.max_model_len is not None:
         kwargs["max_model_len"] = v.max_model_len
     if adapter:
@@ -270,6 +276,16 @@ def main() -> None:
     )
     parser.add_argument("--adapter", default=None, help="Optional HF Hub adapter repo id")
     parser.add_argument(
+        "--tokenizer",
+        default=None,
+        help=(
+            "Override cfg.model.tokenizer_name. Set this to the adapter repo id when "
+            "evaluating an SFT adapter that was trained on a tokenizer (different eos / "
+            "chat_template) shipped with it, so lm-eval terminates generation correctly. "
+            "Changes config_hash."
+        ),
+    )
+    parser.add_argument(
         "--backend",
         default=None,
         choices=["hf", "vllm"],
@@ -297,6 +313,11 @@ def main() -> None:
     cfg = load_config(args.config)
     if args.backend:
         cfg.eval.backend = args.backend  # excluded from config_hash, so no rehash needed
+    if args.tokenizer:
+        from atlas.utils.config import compute_config_hash
+
+        cfg.model.tokenizer_name = args.tokenizer
+        cfg.config_hash = compute_config_hash(cfg)
     entry = run_eval(
         cfg,
         name=args.name,
