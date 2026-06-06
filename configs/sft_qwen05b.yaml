@@ -53,4 +53,6 @@ train:
 output:
   # Adapter destination on HF Hub. Update to your namespace; the train script
   # only pushes if this is set and --no-push-to-hub isn't passed.
-  hub_repo: agaonker/atlas-sft-qwen05b-v1
+  # v1 was on -Instruct (kept on Hub as historical); v2 is the run on pretrained
+  # Qwen2.5-0.5B with assistant_only_loss + patched chat_template.
+  hub_repo: agaonker/atlas-sft-qwen05b-v2

@@ -17,7 +17,7 @@
 UV     ?= uv
 RUNNER ?= $(if $(and $(shell command -v uv 2>/dev/null),$(wildcard .venv)),uv run,)
 
-.PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke eval-modal-check eval-modal-probe eval-modal-shell eval-modal-smoke eval-modal eval-modal-sft sft sft-smoke docs-serve docs-build clean
+.PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke eval-modal-check eval-modal-probe eval-modal-shell eval-modal-smoke eval-modal eval-modal-sft sft sft-smoke sft-modal-smoke sft-modal docs-serve docs-build clean
 
 help:
 	@echo "Targets:"
@@ -38,7 +38,9 @@ help:
 	@echo "  eval-modal     Modal+vLLM base + sft_v1, fresh metrics.json (the clean re-baseline)"
 	@echo "  eval-modal-sft Modal+vLLM sft_v1 only; APPENDS to metrics.json (preserves the base row)"
 	@echo "  sft            Phase 1: full SFT run from configs/sft_qwen05b.yaml; pushes adapter to HF Hub"
-	@echo "  sft-smoke      50-step SFT smoke (no Hub push); proves the train wiring on free tier"
+	@echo "  sft-smoke      50-step local SFT smoke (no Hub push); slow on Mac/CPU"
+	@echo "  sft-modal-smoke 50-step SFT on Modal L4 (no Hub push), ~5 min, ~$$0.30 — pre-flight for sft-modal"
+	@echo "  sft-modal      Full SFT on Modal L4, pushes adapter to HF Hub, ~30-60 min, ~$$1-2"
 	@echo "  docs-serve     mkdocs serve on http://127.0.0.1:8000 (live reload)"
 	@echo "  docs-build     mkdocs build --strict; mirrors what CI does before deploying to Pages"
 
@@ -124,11 +126,22 @@ sft:
 # Local SFT smoke: 50 steps, no Hub push. Proves wiring on free tier per
 # PROJECT.md §5.4 — "never launch paid GPU on code you haven't run 50 steps
 # of on free tier." Runs on CPU; tiny in practice because each step is small.
+# WANDB_MODE=disabled avoids the no-API-key crash on dev machines (see LESSONS.md).
 sft-smoke:
-	$(RUNNER) python -m atlas.train.sft \
+	WANDB_MODE=disabled $(RUNNER) python -m atlas.train.sft \
 	    --config configs/sft_qwen05b.yaml \
 	    --max-steps 50 \
 	    --no-push-to-hub
+
+# Modal SFT smoke: 50 steps on L4, no Hub push. ~5 min, ~$0.30. The right "smoke"
+# tier when the local sft-smoke would take 4+ hours on MPS (Mac M-series).
+sft-modal-smoke:
+	modal run src/atlas/cloud/sft_modal.py::smoke
+
+# Modal full SFT: per configs/sft_qwen05b.yaml's dataset.n_samples + train.* knobs.
+# Pushes the trained adapter to cfg.output.hub_repo. ~30-60 min on L4, ~$1-2.
+sft-modal:
+	modal run src/atlas/cloud/sft_modal.py::main
 
 # Docs site (mkdocs-material → GitHub Pages). Install the [docs] extra first:
 #   uv sync --extra docs   (or pip install -e .[docs])
