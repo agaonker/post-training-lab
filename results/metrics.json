@@ -50,6 +50,31 @@
         "ifeval/inst_level_loose_acc,none": 0.31774580335731417
       },
       "extras": {}
+    },
+    {
+      "name": "base",
+      "method": "none",
+      "model": "Qwen/Qwen2.5-0.5B",
+      "adapter": null,
+      "config_hash": "fde0720e",
+      "config_path": "configs/baseline.yaml",
+      "model_args": "pretrained=Qwen/Qwen2.5-0.5B,dtype=bfloat16,backend=vllm,tensor_parallel_size=1,data_parallel_size=1",
+      "timestamp": "2026-06-06T18:00:52Z",
+      "metrics": {
+        "mmlu/sample_len": 13508.0,
+        "mmlu/acc,none": 0.4812703583061889,
+        "gsm8k/sample_len": 1319.0,
+        "gsm8k/exact_match,strict-match": 0.3388931008339651,
+        "gsm8k/exact_match,flexible-extract": 0.3419257012888552,
+        "truthfulqa_mc2/sample_len": 817.0,
+        "truthfulqa_mc2/acc,none": 0.39881537072605416,
+        "ifeval/sample_len": 541.0,
+        "ifeval/prompt_level_strict_acc,none": 0.12384473197781885,
+        "ifeval/inst_level_strict_acc,none": 0.2278177458033573,
+        "ifeval/prompt_level_loose_acc,none": 0.1423290203327172,
+        "ifeval/inst_level_loose_acc,none": 0.2446043165467626
+      },
+      "extras": {}
     }
   ]
 }
