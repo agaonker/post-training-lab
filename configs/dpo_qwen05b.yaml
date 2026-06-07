@@ -1,0 +1,66 @@
+# Phase 2: DPO on top of Phase 1's sft_v2 adapter, on UltraFeedback-binarized.
+#
+# Inherits model / lora / quant / eval / seed from base.yaml; adds the Phase-2-
+# specific blocks (model.sft_adapter + dataset + train + output). cfg.train is
+# the same deliberate passthrough as Phase 1 — every key flows verbatim to TRL's
+# DPOConfig, so a TRL minor bump is a YAML edit, not a code change.
+#
+# YAML float gotcha: always write 5.0e-6, not 5e-6 (PyYAML parses the dot-less
+# form as a string).
+
+model:
+  # Tokenizer override: same byte-identical vocab as the pretrained base, but
+  # with correct eos = <|im_end|> + chat_template patched for {% generation %}
+  # markers. Inherited by run_dpo via load_base_model_and_tokenizer.
+  tokenizer_name: Qwen/Qwen2.5-0.5B-Instruct
+  # Warm-start: the Phase 1 SFT adapter. Loaded at policy-construction time,
+  # merged into the base, then a fresh LoRA is attached for DPO. The reference
+  # policy is this same merged model (TRL disables the new LoRA for ref forward).
+  sft_adapter: agaonker/atlas-sft-qwen05b-v2
+  # Pin once the run is locked in — keeps the comparison reproducible across
+  # any future re-trains of sft_v2.
+  sft_adapter_revision: null
+
+quant:
+  # Disable 4-bit quant for DPO. We merge the SFT adapter into the base before
+  # attaching the DPO LoRA, and merge_and_unload requires full-precision weights.
+  # bf16 on a 0.5B is ~1 GB; the L4's 22 GiB has plenty of room.
+  load_in_4bit: false
+
+dataset:
+  name: HuggingFaceH4/ultrafeedback_binarized
+  split: train_prefs
+  revision: null
+  # 5k pairs matches sft_v2's 5k samples — apples-to-apples compute envelope.
+  # PROJECT.md §4.1 baseline for Phase 2.
+  n_samples: 5000
+
+train:
+  output_dir: outputs/dpo_qwen05b_v1
+  # DPO loss has larger gradients per token than SFT cross-entropy — drop the
+  # LR by 1-2 orders of magnitude. 5.0e-6 is TRL's documented LoRA-DPO range
+  # baseline (HF alignment-handbook uses ~5e-7 to 1e-5 depending on rank).
+  learning_rate: 5.0e-6
+  num_train_epochs: 1
+  # DPO uses 2x the forward memory (policy + ref) so smaller per-device batch
+  # than SFT; bump grad_accum so effective batch matches sft_v2 (16).
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 8
+  warmup_ratio: 0.03
+  gradient_checkpointing: true
+  logging_steps: 10
+  save_strategy: "no"
+  report_to: wandb
+  # DPO-specific knobs — passed through TrainCfg.extra="allow" to DPOConfig:
+  # canonical sigmoid loss (the original DPO formulation; TRL also supports
+  # ipo, hinge, kto_pair, ...). β = 0.1 is Mitchell's recommendation for HH
+  # and TRL's default — a tested-conservative starting point.
+  loss_type: sigmoid
+  beta: 0.1
+  # Cap sequence length to keep memory bounded — UltraFeedback prompts +
+  # responses can be long; truncate from the prompt end if needed.
+  max_length: 1024
+  max_prompt_length: 512
+
+output:
+  hub_repo: agaonker/atlas-dpo-qwen05b-v1

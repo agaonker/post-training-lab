@@ -36,6 +36,14 @@ class ModelCfg(BaseModel):
     # variant's tokenizer config (correct eos, markers for assistant_only_loss).
     # The two share a byte-identical vocab. null = use ``name`` for both.
     tokenizer_name: str | None = None
+    # Optional warm-start: an SFT adapter (HF Hub repo) to fuse into the base
+    # before training. Used by Phase 2+ methods (DPO/PPO/GRPO/KTO/ORPO) so they
+    # start from the SFT-aligned policy, not the raw pretrained base. null = no
+    # warm-start (Phase 0 baseline and Phase 1 SFT).
+    sft_adapter: str | None = None
+    # Optional revision SHA pin for the sft_adapter — keeps the comparison
+    # reproducible across any future re-trains of the anchor. null = latest.
+    sft_adapter_revision: str | None = None
 
 
 class QuantCfg(BaseModel):

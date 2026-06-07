@@ -17,7 +17,7 @@
 UV     ?= uv
 RUNNER ?= $(if $(and $(shell command -v uv 2>/dev/null),$(wildcard .venv)),uv run,)
 
-.PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke eval-modal-check eval-modal-probe eval-modal-shell eval-modal-smoke eval-modal eval-modal-sft sft sft-smoke sft-modal-smoke sft-modal docs-serve docs-build clean
+.PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke eval-modal-check eval-modal-probe eval-modal-shell eval-modal-smoke eval-modal eval-modal-sft sft sft-smoke sft-modal-smoke sft-modal dpo dpo-smoke dpo-modal-smoke dpo-modal docs-serve docs-build clean
 
 help:
 	@echo "Targets:"
@@ -41,6 +41,10 @@ help:
 	@echo "  sft-smoke      50-step local SFT smoke (no Hub push); slow on Mac/CPU"
 	@echo "  sft-modal-smoke 50-step SFT on Modal L4 (no Hub push), ~5 min, ~$$0.30 — pre-flight for sft-modal"
 	@echo "  sft-modal      Full SFT on Modal L4, pushes adapter to HF Hub, ~30-60 min, ~$$1-2"
+	@echo "  dpo            Phase 2: full DPO run from configs/dpo_qwen05b.yaml; pushes adapter to HF Hub"
+	@echo "  dpo-smoke      50-step local DPO smoke (no Hub push); slow on Mac/CPU, fast on Linux GPU"
+	@echo "  dpo-modal-smoke 50-step DPO on Modal L4 (no Hub push), ~5 min, ~$$0.30 — pre-flight for dpo-modal"
+	@echo "  dpo-modal      Full DPO on Modal L4, pushes adapter to HF Hub, ~30-60 min, ~$$1-2"
 	@echo "  docs-serve     mkdocs serve on http://127.0.0.1:8000 (live reload)"
 	@echo "  docs-build     mkdocs build --strict; mirrors what CI does before deploying to Pages"
 
@@ -142,6 +146,32 @@ sft-modal-smoke:
 # Pushes the trained adapter to cfg.output.hub_repo. ~30-60 min on L4, ~$1-2.
 sft-modal:
 	modal run src/atlas/cloud/sft_modal.py::main
+
+# Phase 2 deliverable: full DPO run from configs/dpo_qwen05b.yaml. Pushes the
+# adapter to the HF Hub repo defined in cfg.output.hub_repo.
+dpo:
+	$(RUNNER) python -m atlas.train.dpo \
+	    --config configs/dpo_qwen05b.yaml
+
+# Local DPO smoke: 50 steps, no Hub push. Same WANDB_MODE=disabled escape hatch
+# as sft-smoke (see LESSONS.md). Designed for a linux GPU; on Mac MPS it's
+# slow because of the policy + ref forward duplication DPO requires.
+dpo-smoke:
+	WANDB_MODE=disabled $(RUNNER) python -m atlas.train.dpo \
+	    --config configs/dpo_qwen05b.yaml \
+	    --max-steps 50 \
+	    --no-push-to-hub
+
+# Modal DPO smoke: 50 steps on L4, no Hub push. ~5 min, ~$0.30. Same tier as
+# sft-modal-smoke — proves the merge-then-DPO + new-LoRA wiring without
+# committing to the full ~$1-2 training run.
+dpo-modal-smoke:
+	modal run src/atlas/cloud/dpo_modal.py::smoke
+
+# Modal full DPO: per configs/dpo_qwen05b.yaml. Pushes the trained adapter
+# to cfg.output.hub_repo. ~30-60 min on L4, ~$1-2.
+dpo-modal:
+	modal run src/atlas/cloud/dpo_modal.py::main
 
 # Docs site (mkdocs-material → GitHub Pages). Install the [docs] extra first:
 #   uv sync --extra docs   (or pip install -e .[docs])
