@@ -74,6 +74,33 @@ Group by category. Date each entry so stale ones are easy to retire.
   headroom. Cap at `0.6`. See [configs/base.yaml](configs/base.yaml). (Already
   in CLAUDE.md; restated here so the lesson lives in one place.) (2026-05-23)
 
+## HF Hub / secrets
+
+- **An HF token that worked for `sft_v1` may not work for `sft_v2`.** A re-minted
+  fine-grained token loses Write scope unless explicitly re-granted. The Modal
+  `hf-token` secret stores whatever you set at creation time — it doesn't
+  auto-rotate. If the secret stales out, the fail-fast preflight in
+  `src/atlas/train/sft.py:_preflight_hub_access` rejects in ~200ms (`whoami`
+  passes, `create_repo` returns 403). Refresh:
+  `modal secret create hf-token HUGGING_FACE_HUB_TOKEN=hf_NEW --force`. (2026-06-06)
+
+- **The fail-fast preflight saved a full SFT run.** Without
+  `_preflight_hub_access`, the 403 would have surfaced only after `trainer.train()`
+  completed — ~45 min and ~$1 of L4 wasted. The preflight is ~200ms. The cost of
+  the extra two API calls (`whoami` + `create_repo(exist_ok=True)`) is rounding
+  error against the cost of one wasted training run. Generalize this pattern
+  before every paid run that *ends* with a Hub push. (2026-06-06)
+
+## wandb / training callbacks
+
+- **A missing `WANDB_API_KEY` on a dev machine crashes `trainer.train()` mid-init.**
+  HF Trainer calls wandb's `on_train_begin` callback when `report_to: wandb` is
+  set; wandb then refuses to start without auth. The fix is to set
+  `WANDB_MODE=disabled` (or unset `report_to`). The `sft-smoke` Makefile target
+  now does this; `src/atlas/cloud/sft_modal.py` bakes it into the image env so
+  the Modal container doesn't need a wandb secret to run. Re-enable by creating
+  a `wandb` Modal secret and dropping the override. (2026-06-06)
+
 ## Process / tooling
 
 - **`make fmt` reformats every file in scope, not just the ones you edited.**

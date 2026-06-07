@@ -75,6 +75,31 @@
         "ifeval/inst_level_loose_acc,none": 0.2446043165467626
       },
       "extras": {}
+    },
+    {
+      "name": "sft_v2",
+      "method": "sft",
+      "model": "Qwen/Qwen2.5-0.5B",
+      "adapter": "agaonker/atlas-sft-qwen05b-v2",
+      "config_hash": "b133712d",
+      "config_path": "configs/baseline.yaml",
+      "model_args": "pretrained=Qwen/Qwen2.5-0.5B,dtype=bfloat16,tokenizer=agaonker/atlas-sft-qwen05b-v2,peft=agaonker/atlas-sft-qwen05b-v2,backend=vllm,tensor_parallel_size=1,data_parallel_size=1",
+      "timestamp": "2026-06-07T13:41:32Z",
+      "metrics": {
+        "mmlu/sample_len": 13508.0,
+        "mmlu/acc,none": 0.4712762807225348,
+        "gsm8k/sample_len": 1319.0,
+        "gsm8k/exact_match,strict-match": 0.34495830174374525,
+        "gsm8k/exact_match,flexible-extract": 0.34950720242608035,
+        "truthfulqa_mc2/sample_len": 817.0,
+        "truthfulqa_mc2/acc,none": 0.38928459803837434,
+        "ifeval/sample_len": 541.0,
+        "ifeval/prompt_level_strict_acc,none": 0.12014787430683918,
+        "ifeval/inst_level_strict_acc,none": 0.23980815347721823,
+        "ifeval/prompt_level_loose_acc,none": 0.14972273567467653,
+        "ifeval/inst_level_loose_acc,none": 0.26258992805755393
+      },
+      "extras": {}
     }
   ]
 }

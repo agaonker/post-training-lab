@@ -104,20 +104,29 @@ def run_eval_remote(
     adapter: str | None = None,
     limit: int | None = None,
     only_tasks: list[str] | None = None,
+    tokenizer: str | None = None,
 ) -> dict:
     """Run the eval on a Modal GPU with the vLLM backend; return the metrics entry.
 
     ``only_tasks`` trims ``eval.tasks`` to the named subset (the fast ``probe`` path uses it
     to skip MMLU's 57-subject fan-out). None = the full task list from the config.
+
+    ``tokenizer`` overrides ``cfg.model.tokenizer_name`` at runtime — set this to the
+    adapter repo id when evaling an SFT adapter whose tokenizer was modified at train
+    time (patched chat_template, eos override). Without it, lm-eval falls back to the
+    base's tokenizer and generation tasks won't terminate cleanly. Changes config_hash.
     """
     from atlas.eval.harness import run_eval
-    from atlas.utils.config import load_config
+    from atlas.utils.config import compute_config_hash, load_config
 
     # snapshot_download reads HF_TOKEN; the hf-token secret exposes HUGGING_FACE_HUB_TOKEN.
     os.environ.setdefault("HF_TOKEN", os.environ.get("HUGGING_FACE_HUB_TOKEN", ""))
 
     cfg = load_config("/root/configs/baseline.yaml")
     cfg.eval.backend = "vllm"  # excluded from config_hash → fingerprint unchanged
+    if tokenizer:
+        cfg.model.tokenizer_name = tokenizer
+        cfg.config_hash = compute_config_hash(cfg)  # included in hash → rehash
     if only_tasks:
         missing = [t for t in only_tasks if t not in cfg.eval.tasks]
         if missing:
@@ -170,11 +179,18 @@ def main(
     method: str = "none",
     adapter: str | None = None,
     limit: int | None = None,
+    tokenizer: str | None = None,
 ) -> None:
     """Single full-task-list eval run (mirrors the CLI). For the cheap wiring check use the
     ``probe`` entrypoint instead — ``--limit`` here still runs all 4 tasks (MMLU fans out to
-    57 subjects × 4 choices, so even ``--limit 50`` is ~11k requests)."""
-    _append_local(run_eval_remote.remote(name, method, adapter, limit))
+    57 subjects × 4 choices, so even ``--limit 50`` is ~11k requests).
+
+    Pass ``--tokenizer <adapter-repo>`` when evaling an SFT adapter whose tokenizer was
+    modified during training (patched chat_template, eos override). Without it, generation
+    tasks (GSM8K, IFEval) won't terminate cleanly. Changes config_hash."""
+    _append_local(
+        run_eval_remote.remote(name, method, adapter, limit, None, tokenizer)
+    )
 
 
 @app.local_entrypoint()
