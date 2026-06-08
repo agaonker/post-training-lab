@@ -67,17 +67,19 @@ that handles three things lm-eval doesn't:
 ## Running it
 
 ```bash
-# Phase 0: un-tuned baseline (Colab/Kaggle/Modal)
-make eval-baseline
+# Phase 0: un-tuned pretrained baseline (Modal L4, vLLM/bf16)
+make eval-modal
 
 # Smoke test (10 samples per task — no GPU needed)
 make eval-smoke
 
-# Phase 1+ with a trained adapter
-python -m atlas.eval.harness \
-    --config configs/baseline.yaml \
-    --name sft_v1 --method sft \
-    --adapter agaonker/atlas-sft-qwen05b-v1
+# Phase 1+ with a trained adapter (pass --tokenizer too so generation
+# terminates on the saved Instruct-template's <|im_end|>, not the base's
+# <|endoftext|>):
+modal run src/atlas/cloud/eval_modal.py::main \
+    --name sft_v2 --method sft \
+    --adapter agaonker/atlas-sft-qwen05b-v2 \
+    --tokenizer agaonker/atlas-sft-qwen05b-v2
 ```
 
 The `--name` and `--method` flags label the row in `metrics.json`; the

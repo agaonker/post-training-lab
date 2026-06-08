@@ -1,6 +1,6 @@
 # Supervised Fine-Tuning (SFT)
 
-Phase 1 of the project. Train the base Qwen2.5-0.5B-Instruct to follow
+Phase 1 of the project. Train the pretrained `Qwen/Qwen2.5-0.5B` to follow
 instructions in a chat format by showing it ~5,000 high-quality user/assistant
 conversations from UltraChat-200k and minimizing next-token cross-entropy.
 
@@ -69,14 +69,29 @@ what SFT taught.
 TRL's `SFTTrainer` applies the model's chat template (the Qwen2.5 ChatML
 variant — `<|im_start|>` / `<|im_end|>` turn markers) to every conversation at
 training time. After templating, the loss is standard next-token cross-entropy
-over the rendered token sequence.
+over the **assistant token positions only**.
 
-The current config does **not** set `assistant_only_loss: true`, so the model
-sees gradient signal from both user *and* assistant turns. For UltraChat —
-where user turns are short prompts and assistant turns are long, careful
-responses — the practical difference vs assistant-only masking is small. If
-Phase 1 results suggest the model is over-imitating user-style text, flipping
-this on is a one-line YAML change in `cfg.train`.
+The current config sets `assistant_only_loss: true`, so user/system turns are
+masked out of the loss. Two complications this exposed:
+
+1. **TRL 1.4 defaults `assistant_only_loss` to `False`.** The first SFT
+   attempt (`sft_v1`) inherited that default and computed loss over the whole
+   conversation — including user turns. The 0.5B was learning to *generate
+   user questions* alongside assistant replies; every eval regressed
+   uniformly. Fixed in `configs/sft_qwen05b.yaml`.
+2. **Qwen2.5's chat template doesn't ship `{% generation %}` markers.** TRL
+   needs them to compute the assistant mask; without them, `assistant_only_loss=True`
+   silently returns an empty mask. We patch the template at load time in
+   [`src/atlas/models/base.py:patch_chat_template_for_assistant_mask`](https://github.com/agaonker/post-training-lab/blob/main/src/atlas/models/base.py)
+   to split the combined user/system/assistant branch and inject the markers.
+3. **Pretrained `Qwen2.5-0.5B` has `pad == eos == <|endoftext|>`.** TRL masks
+   `pad_token_id` in the labels, so the model never sees eos in supervision
+   → never learns to stop. Solved by loading the `-Instruct` tokenizer
+   instead (`cfg.model.tokenizer_name`) — byte-identical vocab, but
+   correctly distinct `pad=<|endoftext|>` / `eos=<|im_end|>`.
+
+The byte-level audit lives in [`results/sft_template_audit.jsonl`](https://github.com/agaonker/post-training-lab/blob/main/results/sft_template_audit.jsonl)
+(produced by `python -m atlas.train.sft --config configs/sft_qwen05b.yaml --dump-template-audit`).
 
 ## Our config
 
@@ -111,9 +126,13 @@ to catch wiring failures in ~5 minutes before the full run.
 ## Output
 
 On success, the trained LoRA adapter is pushed to HF Hub at
-`agaonker/atlas-sft-qwen05b-v1` (the `cfg.output.hub_repo` in
+`agaonker/atlas-sft-qwen05b-v2` (the `cfg.output.hub_repo` in
 [`sft_qwen05b.yaml`][sft-yaml]). The base model is never modified; only the
-~2.1 M LoRA params are saved.
+~2.1 M LoRA params are saved. The patched tokenizer is saved alongside the
+adapter so eval can load it via `--tokenizer agaonker/atlas-sft-qwen05b-v2`.
+
+The earlier `agaonker/atlas-sft-qwen05b-v1` (trained on `-Instruct`) is kept
+on the Hub as historical reference; downstream phases anchor to **v2**.
 
 Subsequent phases reload the base model and **attach this adapter** as their
 starting point — DPO refines on top of these SFT weights, not on the raw
@@ -123,16 +142,19 @@ pretrained Qwen.
 
 From PROJECT.md §6:
 
-> *SFT model beats base on IFEval (instruction-following) by a clear margin.*
+> *SFT model beats base on IFEval `prompt_level_strict_acc` by a clear margin.*
 
-Concretely, with the Phase 0 baseline numbers in hand:
+The bar against the pretrained base (IFEval prompt-strict 0.1238) is
+"clearly above"; the ceiling for reference is Qwen's own `-Instruct` tuning
+at 0.1885.
 
-- **IFEval prompt-strict > 0.25** (base: ~0.14)
-- **IFEval inst-strict > 0.40** (base: ~0.27)
-
-These thresholds are set to be **clear**, not just statistically significant —
-SFT should be obviously better. If the trained model doesn't clear them, that's
-a data or training-recipe problem, not a measurement-noise problem.
+**Phase 1 outcome:** `sft_v2` came in at **0.1201 prompt-strict** — flat
+within noise (−0.37pp). The pipeline is structurally correct (training loss
+decreased, mask was real, several other metrics moved positive), but the
+all-or-nothing prompt-strict bar didn't move on 5k UltraChat rows. See
+[`experiments/002_sft_qwen05b.md`](https://github.com/agaonker/post-training-lab/blob/main/experiments/002_sft_qwen05b.md)
+for the analysis. Phase 2 DPO on top of this adapter then cleared the bar —
+see [`experiments/003`](https://github.com/agaonker/post-training-lab/blob/main/experiments/003_dpo_qwen05b.md).
 
 MMLU and GSM8K aren't expected to move much (both are knowledge / reasoning
 benchmarks, and SFT on conversation data doesn't add either). TruthfulQA can
@@ -168,14 +190,15 @@ shows mild memorization on the train set. One epoch is the conservative
 default; PROJECT.md treats it as the starting point with permission to scale
 up if Phase 1 underperforms its IFEval bar.
 
-### Why no assistant-only loss masking
+### Why we now use assistant-only loss masking
 
-The current YAML doesn't set `assistant_only_loss: true`. Modern SFT recipes
-(Zephyr, OpenHermes) typically *do* mask user turns from the loss so the
-model only learns to generate assistant text, not user text. For UltraChat
-specifically — where assistant turns are 10–20× longer than user turns — the
-practical difference is small. We're holding this as a tuning lever for
-Phase 1.5 if results disappoint; flipping it on is one YAML line.
+The first SFT attempt left `assistant_only_loss` at TRL's `False` default —
+loss was computed over the whole conversation including user turns. The 0.5B
+ended up spending capacity learning to generate user questions; every eval
+regressed uniformly. The current YAML sets `assistant_only_loss: true` and
+patches the chat template so the mask actually fires (Qwen's template ships
+without the `{% generation %}` markers TRL needs). See the chat-template +
+masking section above for the byte-level audit pattern.
 
 ## References
 
