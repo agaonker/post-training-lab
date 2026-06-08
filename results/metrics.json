@@ -100,6 +100,31 @@
         "ifeval/inst_level_loose_acc,none": 0.26258992805755393
       },
       "extras": {}
+    },
+    {
+      "name": "dpo_v1",
+      "method": "dpo",
+      "model": "Qwen/Qwen2.5-0.5B",
+      "adapter": "agaonker/atlas-dpo-qwen05b-v1",
+      "config_hash": "d53fd258",
+      "config_path": "configs/baseline.yaml",
+      "model_args": "pretrained=Qwen/Qwen2.5-0.5B,dtype=bfloat16,tokenizer=agaonker/atlas-dpo-qwen05b-v1,peft=agaonker/atlas-dpo-qwen05b-v1,backend=vllm,tensor_parallel_size=1,data_parallel_size=1",
+      "timestamp": "2026-06-08T17:09:24Z",
+      "metrics": {
+        "mmlu/sample_len": 13508.0,
+        "mmlu/acc,none": 0.48015990524133845,
+        "gsm8k/sample_len": 1319.0,
+        "gsm8k/exact_match,strict-match": 0.34950720242608035,
+        "gsm8k/exact_match,flexible-extract": 0.3525398028809704,
+        "truthfulqa_mc2/sample_len": 817.0,
+        "truthfulqa_mc2/acc,none": 0.39577646313497733,
+        "ifeval/sample_len": 541.0,
+        "ifeval/prompt_level_strict_acc,none": 0.12754158964879853,
+        "ifeval/inst_level_strict_acc,none": 0.2422062350119904,
+        "ifeval/prompt_level_loose_acc,none": 0.14417744916820702,
+        "ifeval/inst_level_loose_acc,none": 0.2565947242206235
+      },
+      "extras": {}
     }
   ]
 }
