@@ -1,10 +1,18 @@
 # LoRA and QLoRA
 
 This page covers the parameter-efficient fine-tuning method this repo uses for
-**every** post-training phase: **QLoRA**. The same `lora:` and `quant:` blocks
-in [`configs/base.yaml`][base-yaml] flow into SFT, DPO, KTO, the reward model,
-PPO, and GRPO — the comparison across methods is the contribution, so the LoRA
-setup is held constant.
+**every** post-training phase: **QLoRA** (LoRA + 4-bit base). The `lora:` block
+in [`configs/base.yaml`][base-yaml] is **held constant** across SFT, DPO, KTO,
+the reward model, PPO, and GRPO — the comparison across methods is the
+contribution, so adapter capacity (rank, target modules, dropout) doesn't vary.
+
+The `quant:` block has **one method-specific exception**: DPO (Phase 2)
+disables 4-bit because it merges the SFT adapter into the base via
+`merge_and_unload` before attaching the DPO LoRA — and `merge_and_unload`
+needs full-precision weights. The merge-then-DPO recipe lives in
+[`src/atlas/train/dpo.py`](https://github.com/agaonker/post-training-lab/blob/main/src/atlas/train/dpo.py);
+the Phase 2 numbers are in
+[`experiments/003`](https://github.com/agaonker/post-training-lab/blob/main/experiments/003_dpo_qwen05b.md).
 
 ## What LoRA is
 
@@ -80,26 +88,39 @@ Trainable parameter count for Qwen2.5-0.5B with this config: roughly
 
 | Knob | Value | Source | Why |
 |------|-------|--------|-----|
-| `load_in_4bit` | `true` | repo-wide | Even though the 0.5B base fits without quantization, keeping 4-bit on means the code path is identical when we scale to larger bases later. |
+| `load_in_4bit` | `true` (SFT/PPO/GRPO/KTO); `false` for DPO | repo-wide with one override | Even though the 0.5B base fits without quantization, keeping 4-bit on means the code path is identical when we scale to larger bases later. The DPO YAML overrides to `false` because the merge-then-DPO recipe (fuse `sft_v2` into the base before attaching the DPO LoRA) requires full-precision weights. |
 | `bnb_4bit_quant_type` | `nf4` | paper default | NormalFloat-4 outperforms `fp4` by ~1 pt on the QLoRA benchmark — "free quality" with no extra cost. |
 | `bnb_4bit_compute_dtype` | `bfloat16` | paper default (Ampere+) | On free Kaggle T4 / Colab P100, the [Kaggle notebook][kaggle-notebook] auto-patches this to `float16` because Turing/Pascal emulate bf16 in software at ~half speed. |
 | `double_quant` | `true` | paper default | Free 0.4 bits/param savings. Always on. |
 
-### Training hyperparameters (Phase 1 / SFT)
+### Training hyperparameters by phase
 
-These live in [`configs/sft_qwen05b.yaml`][sft-yaml] and are method-specific.
-DPO, PPO, and GRPO will pick their own learning rate / batch — the LoRA block
-above is the part that stays constant.
+The LoRA block (rank, target modules, dropout) is constant across phases.
+Method-specific training knobs vary by phase and live in their own configs.
+
+**Phase 1 / SFT** ([`configs/sft_qwen05b.yaml`][sft-yaml]):
 
 | Knob | Value | Why |
 |------|-------|-----|
 | `learning_rate` | **2.0e-4** | QLoRA paper recommendation for LoRA adapters with r=16–64. Higher than full fine-tuning would tolerate because LoRA's low-rank update bounds the effective per-step weight change. |
-| `per_device_train_batch_size` | **4** | T4 memory ceiling with 0.5B + 4-bit + LoRA + gradient checkpointing. |
+| `per_device_train_batch_size` | **4** | Memory ceiling with 0.5B + 4-bit + LoRA + gradient checkpointing. |
 | `gradient_accumulation_steps` | **4** | Effective batch = 16. Standard for instruction-tuning at this scale. |
-| `gradient_checkpointing` | `true` | Required to fit batch=4 inside 16 GB T4. Trades ~30% compute for ~50% memory. |
-| `warmup_ratio` | **0.03** | 3% of steps. Standard for short fine-tunes; longer warmup costs progress when total steps is ~80. |
-| `num_train_epochs` | **1** | One pass over the 5k slice. Phase 1 is "make IFEval move past base", not "saturate". |
+| `gradient_checkpointing` | `true` | Required to fit batch=4 inside 16 GB. Trades ~30% compute for ~50% memory. |
+| `warmup_ratio` | **0.03** | 3% of steps. Standard for short fine-tunes; longer warmup costs progress when total steps is ~313. |
+| `num_train_epochs` | **1** | One pass over the 5k slice. |
 | `n_samples` | **5000** | Per PROJECT.md §4.1. Small enough to iterate, large enough for SFT to move IFEval. |
+| `assistant_only_loss` | `true` | Mask user/system turns out of the loss. TRL 1.4 defaults this to `False` — the lack of this flag in Phase 1 v1 was a real bug; see [`SFT` method page](../methods/sft.md#chat-template-and-loss-masking). |
+
+**Phase 2 / DPO** ([`configs/dpo_qwen05b.yaml`][dpo-yaml]):
+
+| Knob | Value | Why |
+|------|-------|-----|
+| `learning_rate` | **5.0e-6** | 1–2 orders of magnitude lower than SFT's 2e-4 because the DPO loss surface is steeper than cross-entropy (grad norm ≈ 25× at init). HF alignment-handbook range. |
+| `beta` | **0.1** | Mitchell's recommendation for HH-style preference data; TRL's default. Conservative starting point. |
+| `loss_type` | `sigmoid` | Canonical DPO. TRL also exposes `ipo`, `hinge`, `kto_pair`. |
+| `per_device_train_batch_size` | **2** | DPO duplicates the forward (policy + ref) so smaller per-device batch than SFT; `gradient_accumulation_steps: 8` keeps effective batch = 16. |
+| `max_length` | **1024** | UltraFeedback prompts + responses can be long; cap to bound memory. TRL 1.4 dropped `max_prompt_length`; `max_length` alone now governs the combined sequence. |
+| `n_samples` | **5000** | Matches SFT's row count for an apples-to-apples compute envelope. |
 
 ## Decisions worth understanding
 
@@ -108,9 +129,14 @@ above is the part that stays constant.
 The QLoRA paper (Table 9) swept r ∈ {8, 16, 32, 64, 256} on a 7B base. Below
 r=16 the paper saw underfitting on harder reasoning tasks; above r=64 was
 wasted compute. For a 0.5B base the "underfit boundary" shifts lower — but
-r=16 is the **conservative** choice that still has headroom. If Phase 1
-results show SFT hitting an obvious capacity ceiling on IFEval, the right
-next experiment is r=32, not lr-tuning.
+r=16 is the **conservative** choice that still has headroom.
+
+Phase 1 (`sft_v2`) came in flat on IFEval prompt-strict (`−0.37pp` vs
+pretrained base) — exactly the "obvious capacity ceiling" signal that would
+normally argue for bumping to r=32. But Phase 2 DPO on top of `sft_v2`
+cleared the bar (+0.74pp), suggesting the bottleneck was *the method on 5k
+rows*, not *adapter capacity*. r=32 stays parked as a Phase 7 stretch
+experiment rather than the next move.
 
 ### Why the same `lora:` block across all methods
 
@@ -151,5 +177,6 @@ for free-tier training. On Ampere (A100, RTX 30-series), L4, or Hopper
 
 [base-yaml]: https://github.com/agaonker/post-training-lab/blob/main/configs/base.yaml
 [sft-yaml]: https://github.com/agaonker/post-training-lab/blob/main/configs/sft_qwen05b.yaml
+[dpo-yaml]: https://github.com/agaonker/post-training-lab/blob/main/configs/dpo_qwen05b.yaml
 [adapters]: https://github.com/agaonker/post-training-lab/blob/main/src/atlas/models/adapters.py
 [kaggle-notebook]: https://github.com/agaonker/post-training-lab/blob/main/notebooks/kaggle/run_sft_kaggle.ipynb
