@@ -58,9 +58,9 @@ train:
   loss_type: sigmoid
   beta: 0.1
   # Cap sequence length to keep memory bounded — UltraFeedback prompts +
-  # responses can be long; truncate from the prompt end if needed.
+  # responses can be long. TRL 1.4 dropped max_prompt_length; max_length
+  # alone governs the combined prompt + completion sequence now.
   max_length: 1024
-  max_prompt_length: 512
 
 output:
   hub_repo: agaonker/atlas-dpo-qwen05b-v1

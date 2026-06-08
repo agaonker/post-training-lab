@@ -207,5 +207,7 @@ def test_dpo_qwen05b_yaml_loads_and_merges():
     assert td["beta"] == 0.1
     assert td["loss_type"] == "sigmoid"
     assert td["max_length"] == 1024
-    assert td["max_prompt_length"] == 512
+    # TRL 1.4 dropped max_prompt_length; max_length now governs the combined
+    # prompt + completion sequence on its own.
+    assert "max_prompt_length" not in td
     assert cfg.train.output_dir == "outputs/dpo_qwen05b_v1"
