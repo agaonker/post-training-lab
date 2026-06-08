@@ -17,7 +17,7 @@
 UV     ?= uv
 RUNNER ?= $(if $(and $(shell command -v uv 2>/dev/null),$(wildcard .venv)),uv run,)
 
-.PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke eval-modal-check eval-modal-probe eval-modal-shell eval-modal-smoke eval-modal eval-modal-sft sft sft-smoke sft-modal-smoke sft-modal dpo dpo-smoke dpo-modal-smoke dpo-modal docs-serve docs-build clean
+.PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke eval-modal-check eval-modal-probe eval-modal-shell eval-modal-smoke eval-modal eval-modal-sft sft sft-smoke sft-modal-smoke sft-modal dpo dpo-smoke dpo-modal-smoke dpo-modal rm rm-smoke rm-modal-smoke rm-modal docs-serve docs-build clean
 
 help:
 	@echo "Targets:"
@@ -45,6 +45,10 @@ help:
 	@echo "  dpo-smoke      50-step local DPO smoke (no Hub push); slow on Mac/CPU, fast on Linux GPU"
 	@echo "  dpo-modal-smoke 50-step DPO on Modal L4 (no Hub push), ~5 min, ~$$0.30 — pre-flight for dpo-modal"
 	@echo "  dpo-modal      Full DPO on Modal L4, pushes adapter to HF Hub, ~30-60 min, ~$$1-2"
+	@echo "  rm             Phase 3A: full RM run from configs/rm_qwen05b.yaml; pushes adapter to HF Hub"
+	@echo "  rm-smoke       50-step local RM smoke (no Hub push); slow on Mac/CPU, fast on Linux GPU"
+	@echo "  rm-modal-smoke 50-step RM on Modal L4 (no Hub push), ~5 min, ~$$0.30 — pre-flight for rm-modal"
+	@echo "  rm-modal       Full RM on Modal L4, pushes adapter to HF Hub, ~30-45 min, ~$$1-2"
 	@echo "  docs-serve     mkdocs serve on http://127.0.0.1:8000 (live reload)"
 	@echo "  docs-build     mkdocs build --strict; mirrors what CI does before deploying to Pages"
 
@@ -172,6 +176,32 @@ dpo-modal-smoke:
 # to cfg.output.hub_repo. ~30-60 min on L4, ~$1-2.
 dpo-modal:
 	modal run src/atlas/cloud/dpo_modal.py::main
+
+# Phase 3A deliverable: full Reward Model run from configs/rm_qwen05b.yaml.
+# Pushes the RM adapter to the HF Hub repo defined in cfg.output.hub_repo;
+# Phase 3B PPO consumes that adapter to score rollouts.
+rm:
+	$(RUNNER) python -m atlas.train.reward_model \
+	    --config configs/rm_qwen05b.yaml
+
+# Local RM smoke: 50 steps, no Hub push. Same WANDB_MODE=disabled escape hatch
+# as sft-smoke / dpo-smoke (see LESSONS.md).
+rm-smoke:
+	WANDB_MODE=disabled $(RUNNER) python -m atlas.train.reward_model \
+	    --config configs/rm_qwen05b.yaml \
+	    --max-steps 50 \
+	    --no-push-to-hub
+
+# Modal RM smoke: 50 steps on L4, no Hub push. ~5 min, ~$0.30. Proves the
+# SequenceClassification head + LoRA SEQ_CLS task_type + regression head
+# wire correctly before the full run.
+rm-modal-smoke:
+	modal run src/atlas/cloud/rm_modal.py::smoke
+
+# Modal full RM: per configs/rm_qwen05b.yaml. Pushes the trained adapter
+# to cfg.output.hub_repo. ~30-45 min on L4, ~$1-2.
+rm-modal:
+	modal run src/atlas/cloud/rm_modal.py::main
 
 # Docs site (mkdocs-material → GitHub Pages). Install the [docs] extra first:
 #   uv sync --extra docs   (or pip install -e .[docs])

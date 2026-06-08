@@ -1,0 +1,59 @@
+# Phase 3A: Reward Model on Qwen2.5-0.5B (pretrained), trained on
+# UltraFeedback-binarized preference pairs. Phase 3B (PPO) consumes this RM
+# to score policy rollouts.
+#
+# Inherits model / lora / quant / eval / seed from base.yaml; adds the
+# Phase-3A-specific blocks (dataset / train / output). cfg.train is the same
+# permissive passthrough as Phases 1-2 — every key flows verbatim to TRL's
+# RewardConfig.
+#
+# YAML float gotcha: always write 5.0e-5, not 5e-5 (PyYAML parses the dot-less
+# form as a string).
+
+model:
+  # Same tokenizer override as SFT/DPO: byte-identical vocab as the pretrained
+  # base, with correct eos = <|im_end|>. The chat_template patcher is harmless
+  # for the RM path (no assistant_only_loss needed — RM trains on full
+  # chosen/rejected completions).
+  tokenizer_name: Qwen/Qwen2.5-0.5B-Instruct
+  # No SFT warm-start. RM is a classifier scoring "is response better?",
+  # not a generator — starting from raw pretrained weights + a fresh
+  # regression head is the canonical recipe (Stiennon et al. 2020, InstructGPT).
+
+quant:
+  # 4-bit base + LoRA r=16 on the regression head and MLP projections. RM
+  # doesn't need merge_and_unload (no nested adapters in Phase 3B; PPO loads
+  # this adapter directly), so 4-bit stays on.
+  load_in_4bit: true
+
+dataset:
+  name: HuggingFaceH4/ultrafeedback_binarized
+  split: train_prefs
+  revision: null
+  # 5k pairs matches sft_v2 and dpo_v1 row counts. Apples-to-apples envelope.
+  n_samples: 5000
+
+train:
+  output_dir: outputs/rm_qwen05b_v1
+  # Higher than DPO's 5e-6 (RM isn't anchored to a frozen ref so larger updates
+  # are safer) but lower than SFT's 2e-4 (the classification head's gradients
+  # cover only the final layer, so an SFT-scale LR overshoots). 5e-5 is the
+  # HF alignment-handbook starting point.
+  learning_rate: 5.0e-5
+  num_train_epochs: 1
+  # RM forward is one pass per pair (no policy + ref pairing like DPO).
+  # Effective batch = 16, matching sft_v2 / dpo_v1.
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4
+  warmup_ratio: 0.03
+  gradient_checkpointing: true
+  logging_steps: 10
+  save_strategy: "no"
+  report_to: wandb
+  # RewardConfig-specific knob — passed through TrainCfg.extra="allow":
+  # cap concatenated (prompt + completion) length so memory stays bounded.
+  # UltraFeedback chosen/rejected can be long.
+  max_length: 1024
+
+output:
+  hub_repo: agaonker/atlas-rm-qwen05b-v1
