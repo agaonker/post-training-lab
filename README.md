@@ -1,13 +1,10 @@
 # post-training-lab
 
-A controlled, reproducible comparison of modern LLM post-training methods — SFT, DPO, KTO,
-full RLHF (reward model + PPO), and GRPO/RLVR — applied to the same small base model
-(`Qwen/Qwen2.5-0.5B`, pretrained — *not* the `-Instruct` variant) with the same evaluation
-harness.
+Controlled comparison of LLM post-training methods (SFT, DPO, KTO, RLHF/PPO, GRPO) on
+pretrained `Qwen/Qwen2.5-0.5B` with one eval harness. Scope, phase plan, datasets, compute
+budget, anti-goals — see [`PROJECT.md`](PROJECT.md).
 
-📖 **Docs:** [agaonker.github.io/post-training-lab](https://agaonker.github.io/post-training-lab/) — method explainers, paper links, and hyperparameter reasoning.
-
-See [`PROJECT.md`](PROJECT.md) for the full charter and phase plan.
+📖 **Docs:** [agaonker.github.io/post-training-lab](https://agaonker.github.io/post-training-lab/)
 
 > **Status:** Phase 2 (DPO) closed. Phase 3 (Reward Model + PPO) next. Three methods rows in
 > the comparison table below; each phase adds one. The README is updated as each phase lands.
@@ -50,13 +47,5 @@ the first policy in this lab to clear that bar. The Phase 2 *formal* success cri
 
 ## Learnings
 
-- Pretrained base, not `-Instruct` — re-SFT-ing aligned weights regressed every eval.
-- `assistant_only_loss` defaults to `False` in TRL 1.4 — must set it explicitly.
-- Qwen2.5's chat template lacks `{% generation %}` markers — patch at load time.
-- Pretrained Qwen has `pad == eos` — load the `-Instruct` tokenizer (same vocab).
-- HF token preflight saves a wasted training run when the Modal secret stales out.
-- TRL 1.4 dropped `max_prompt_length` from `DPOConfig` — use `max_length` only.
-- Merge-then-DPO is the simplest QLoRA-DPO recipe; multi-adapter is more fragile.
-- Long Modal runs from a sandboxed shell drop heartbeat — run from your own terminal.
-
-Full list with dates: [`LESSONS.md`](LESSONS.md).
+[`LESSONS.md`](LESSONS.md) — terse one-liners with dates, grouped by category
+(base model, tokenizer, training framework, HF Hub, wandb, process).

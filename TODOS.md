@@ -114,28 +114,20 @@ sense if Modal wins.
 
 ## From the base-model swap + sft_v1 regression debugging (2026-06-06)
 
-### P1 — Train `sft_v2` on the pretrained base
-**Where:** Phase 1 deliverable; [configs/sft_qwen05b.yaml](configs/sft_qwen05b.yaml),
-[src/atlas/train/sft.py](src/atlas/train/sft.py).
-**Why:** The diff (`8c21e04`) landed the fix (pretrained base + `assistant_only_loss`
-+ chat-template patch) but no adapter exists yet for the new pipeline.
-**Fix:** `modal run` the SFT training; push to `agaonker/atlas-sft-qwen05b-v2`;
-eval on Modal; append the new row.
+### ~~P1 — Train `sft_v2` on the pretrained base~~ (DONE 2026-06-07)
+**Landed in:** `369a531` (Modal entrypoint) + the run itself (adapter
+`agaonker/atlas-sft-qwen05b-v2`). 313 steps, train_loss 1.389,
+mean_token_accuracy 0.6296 → 0.6538. See `experiments/002`.
 
-### P1 — Rewrite [experiments/002_sft_qwen05b.md](experiments/002_sft_qwen05b.md) once `sft_v2` lands
-**Why:** Current file leads with a refuted hypothesis ("chat-template drift
-(most likely)") and reports the old `-Instruct` numbers. It's not just stale —
-the lead diagnosis is wrong (see [writeups/sft_regression_diagnosis.html](writeups/sft_regression_diagnosis.html)).
-**Fix:** Wait for `sft_v2` numbers, then rewrite end-to-end with: pretrained-base
-framing, the real diagnosis (no `assistant_only_loss` + re-SFT-ing aligned
-weights), `sft_v2` results vs both pretrained base and `-Instruct` reference.
+### ~~P1 — Rewrite [experiments/002_sft_qwen05b.md](experiments/002_sft_qwen05b.md)~~ (DONE 2026-06-07)
+**Landed in:** `69cbd2e`. Refuted "chat-template drift" hypothesis replaced
+with the real (assistant_only_loss + re-SFT-ing aligned weights) diagnosis;
+three-row results table; honest "Phase 1 criterion not met on prompt-strict
+but pipeline structurally correct" framing.
 
-### P2 — Update [README.md](README.md) results table after `sft_v2`
-**Why:** Currently shows only the old `-Instruct` base + `sft_v1` rows and cites
-the refuted "chat-template drift" cause. Misleads anyone landing on the repo.
-**Fix:** Once `sft_v2` exists: replace with three rows (`base` pretrained,
-`sft_v1` historical with a note, `sft_v2`); drop the wrong cause sentence; link
-to `writeups/sft_regression_diagnosis.html` and `LESSONS.md`.
+### ~~P2 — Update [README.md](README.md) results table after `sft_v2`~~ (DONE 2026-06-07)
+**Landed in:** `1e5bff4` + later trims (`9e8e57a`). README now shows the
+3-row pretrained-base table + deltas; refuted hypothesis removed.
 
 ### P3 — [scripts/explore_model.py](scripts/explore_model.py) hardcodes `Qwen2.5-0.5B-Instruct`
 **Why:** Inconsistent with the new pretrained base; if anyone runs it they'll
@@ -143,10 +135,34 @@ explore the wrong model. Not load-bearing — script is for one-shot inspection
 only — but it'll confuse a future reader.
 **Fix:** Switch the constant to `Qwen/Qwen2.5-0.5B`. Trivial.
 
-### P3 — Author `writeups/01_sft_and_qlora.md` once `sft_v2` lands
+### P3 — Author `writeups/01_sft_and_qlora.md` once Phase 2 closes
 **Why:** Phase 1 deliverable per [PROJECT.md §6](PROJECT.md); the polished
-writeup hasn't been written yet. The diagnosis HTML records the *fix*; the Phase 1
-writeup should record the *story* with final numbers.
+writeup hasn't been written yet. `experiments/002` records the *story*;
+`writeups/01_sft_and_qlora.md` should be the public-facing, paper-length
+version. Defer until Phase 6 LLM-judge numbers land so the comparison is
+complete.
+
+---
+
+## Foundational decisions still open (moved from PROJECT.md §9, 2026-06-08)
+
+### P2 — KTO vs ORPO (pick one for Phase 5)
+**Why:** PROJECT.md §6 Phase 5 says "pick one" — KTO uses *unpaired* binary
+signal while ORPO folds an SFT-style and preference-style loss together.
+Decide before Phase 5 starts. Both work on UltraFeedback so the data
+infrastructure carries over either way.
+
+### P2 — LLM judge: Claude vs GPT-4o-mini (pick one for cost predictability)
+**Why:** Phase 6 LLM-judge eval needs an API. Claude (Anthropic API) or
+GPT-4o-mini (OpenAI API) — pick one and pin in `configs/judge.yaml` (not yet
+written). Anthropic API key is already in CLAUDE.md's secrets list as
+optional; OpenAI would be a new secret. Choose based on cost per 200 prompts
+× ~6 method rows × pairwise.
+
+### P3 — Personal site / Substack URL for writeups
+**Why:** PROJECT.md §8 names polished `writeups/*.md` as a portfolio
+deliverable; they need a public home beyond the GitHub repo. Pick before
+Phase 6 closes.
 
 ---
 

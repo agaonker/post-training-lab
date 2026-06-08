@@ -385,13 +385,16 @@ Every method gets the same evaluation. Apples-to-apples is the whole point of th
 
 ---
 
-## 9. Open decisions to make in Phase 0
+## 9. Foundational decisions (resolved)
 
-- [x] Final repo name confirmed: `post-training-lab`
-- [x] **Base model: pretrained `Qwen/Qwen2.5-0.5B`** (decided 2026-06-06 after `sft_v1` on `-Instruct` regressed uniformly — there's nothing for SFT to do on already-aligned weights; see `LESSONS.md`). Tokenizer is borrowed from `-Instruct` at SFT time (`cfg.model.tokenizer_name`). Stretch: Qwen2.5-1.5B.
-- [ ] KTO vs ORPO — pick one for Phase 5
-- [ ] LLM judge: Claude (via Anthropic API) or GPT-4o-mini (via OpenAI API) — pick one for cost predictability
-- [ ] Personal site / Substack URL for writeups
+Decisions that locked the comparison's structure. Items still open are tracked
+as P-tagged TODOs in [TODOS.md](TODOS.md).
+
+- **Repo name**: `post-training-lab`.
+- **Base model**: pretrained `Qwen/Qwen2.5-0.5B` (decided 2026-06-06 after
+  `sft_v1` on `-Instruct` regressed uniformly — there's nothing for SFT to do
+  on already-aligned weights; see `LESSONS.md`). Tokenizer is borrowed from
+  `-Instruct` at SFT time (`cfg.model.tokenizer_name`). Stretch: Qwen2.5-1.5B.
 
 ---
 

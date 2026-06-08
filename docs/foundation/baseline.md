@@ -47,25 +47,21 @@ Run metadata: `Qwen/Qwen2.5-0.5B`, `dtype=bfloat16`, `backend=vllm`,
   0.3070) is the headroom Qwen's own SFT recovered — and what the methods in
   this lab can be measured against.
 
-## Phase 1 target (reframed for pretrained base)
+## Phase 1 target
 
-From PROJECT.md §6: *"SFT model beats base on IFEval `prompt_level_strict_acc`
-by a clear margin."*
+PROJECT.md §6 ("SFT beats base on IFEval `prompt_level_strict_acc` by a clear
+margin") is the canonical success criterion; see
+[PROJECT.md §6 → Phase 1](https://github.com/agaonker/post-training-lab/blob/main/PROJECT.md#phase-1--sft--qlora-1-weekend).
 
-| Metric | Pretrained base | Phase 1 target | `-Instruct` reference (ceiling) |
-|--------|----------------:|---------------:|--------------------------------:|
-| IFEval prompt-strict | 0.1238 | **> base** by a clear margin | 0.1885 (Qwen's own SFT) |
-| IFEval inst-strict | 0.2278 | **> base** by a clear margin | 0.3070 |
-| MMLU acc | 0.4813 | **≥ 0.47** | 0.4732 (alignment cost) |
-| TruthfulQA-MC2 acc | 0.3988 | **≥ 0.38** | 0.4190 |
-| GSM8K (either) | 0.3389 / 0.3419 | _no strong prior_ | 0.3404 / 0.3472 |
+Reference points against the pretrained-base numbers above:
 
-A successful SFT should ideally land near or above the `-Instruct` numbers —
-that is, recover what Qwen's own supervised tuning achieved. Phase 1's
-`sft_v2` came in **flat on IFEval prompt-strict** (0.1201). That's a Phase 1
-finding, not a bug: see [`experiments/002`](https://github.com/agaonker/post-training-lab/blob/main/experiments/002_sft_qwen05b.md)
-for the analysis and Phase 2's [`dpo_v1`](https://github.com/agaonker/post-training-lab/blob/main/experiments/003_dpo_qwen05b.md)
-for the metric that did move.
+- **`-Instruct` ceiling** (what Qwen's own SFT achieved): IFEval prompt-strict
+  0.1885, inst-strict 0.3070, MMLU 0.4732, TruthfulQA 0.4190.
+- **Phase 1 outcome (`sft_v2`)**: flat on prompt-strict (0.1201). Pipeline is
+  structurally correct but didn't clear the bar on 5k rows. Full analysis:
+  [`experiments/002`](https://github.com/agaonker/post-training-lab/blob/main/experiments/002_sft_qwen05b.md).
+- **Phase 2 outcome (`dpo_v1`)**: cleared the bar at 0.1275. See
+  [`experiments/003`](https://github.com/agaonker/post-training-lab/blob/main/experiments/003_dpo_qwen05b.md).
 
 ## How to reproduce
 

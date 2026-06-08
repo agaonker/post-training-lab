@@ -4,9 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-A controlled comparison of post-training methods (SFT, DPO, KTO/ORPO, RLHF/PPO, GRPO/RLVR) on **one** small base model (`Qwen/Qwen2.5-0.5B`, pretrained — not the `-Instruct` variant) with **one** evaluation harness. The comparison — not any individual method — is the contribution. See [PROJECT.md](PROJECT.md) for the full plan-of-record (phases, datasets per phase, compute budget, anti-goals).
-
-Code lives in `src/atlas/` and is importable as `atlas.*` (the project is named `post-training-lab`; the package is `atlas`).
+Repo intent + phases + scope: see [PROJECT.md](PROJECT.md) §1. Code lives in `src/atlas/` and is importable as `atlas.*` (the project is named `post-training-lab`; the package is `atlas`).
 
 Currently in **Phase 1** (mid-flight): config system, eval harness, and SFT pipeline all in place. After `sft_v1` (trained on `-Instruct`) regressed uniformly on every eval — diagnosed in `writeups/sft_regression_diagnosis.html` and captured in `LESSONS.md` — the base was switched to pretrained `Qwen/Qwen2.5-0.5B`, `assistant_only_loss` enabled, and the chat_template patched for TRL's mask path. New pretrained-base eval row landed (`config_hash fde0720e`). `sft_v2` to be trained next on the new base; `sft_v1` (`agaonker/atlas-sft-qwen05b-v1`) is kept on the Hub as historical reference but is no longer the active adapter.
 

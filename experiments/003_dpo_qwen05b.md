@@ -11,21 +11,26 @@ having little to do on its own; DPO with preference data clearly added signal.
 
 ## Method
 
-- **Policy base**: `Qwen/Qwen2.5-0.5B` (pretrained)
-- **Warm-start**: `agaonker/atlas-sft-qwen05b-v2` (Phase 1 SFT adapter, merged
-  into the base via `merge_and_unload` so the DPO LoRA starts from an aligned
-  model and the reference policy is exactly that merged sft_v2)
-- **Trainable**: fresh LoRA r=16 attached via TRL's `peft_config`
-- **Dataset**: `HuggingFaceH4/ultrafeedback_binarized` `train_prefs`, 5,000
-  shuffled pairs (`seed=42`). UltraFeedback is derived from UltraChat-200k —
-  same lineage as sft_v2's training data, so prefs are in-distribution.
-- **Loss**: canonical DPO (`loss_type=sigmoid`), β=0.1
-- **Optimizer**: lr=5.0e-6 (1-2 orders below SFT's 2e-4 because DPO gradients
-  are steeper), 1 epoch over 5k pairs, warmup ratio 0.03
-- **Batching**: per_device=2, grad_accum=8 (effective batch=16, matches sft_v2)
-- **Eval**: same `lm-eval-harness` vLLM/bf16 path used for `base` and `sft_v2`,
-  with `--tokenizer agaonker/atlas-dpo-qwen05b-v1` so generation terminates on
-  the saved Instruct-template's `<|im_end|>`.
+Hyperparameters: [`configs/dpo_qwen05b.yaml`](../configs/dpo_qwen05b.yaml).
+Training code: [`src/atlas/train/dpo.py`](../src/atlas/train/dpo.py).
+
+Two recipe choices worth recording because they're load-bearing for the
+result:
+
+- **Merge-then-DPO.** The `sft_v2` LoRA is fused into the base via
+  `merge_and_unload` before the DPO LoRA attaches. This is why
+  `quant.load_in_4bit: false` in the YAML — merge needs full-precision
+  weights. TRL's reference policy then comes for free (disable the DPO LoRA
+  for the ref forward and you're back to merged-`sft_v2` behavior). Avoids
+  the multi-adapter `model_adapter_name` / `ref_adapter_name` juggling that
+  varies across TRL minor versions.
+- **In-distribution preference data.** UltraFeedback-binarized is *derived
+  from* UltraChat-200k (the sft_v2 corpus), so the prefs are in-distribution
+  for the policy by construction.
+
+Eval uses the same vLLM/bf16 path as `base` and `sft_v2`, with
+`--tokenizer agaonker/atlas-dpo-qwen05b-v1` so generation terminates on the
+saved Instruct-template's `<|im_end|>`.
 
 Total Modal compute: ~35 min training + ~25 min eval. Cost ~$1.50.
 

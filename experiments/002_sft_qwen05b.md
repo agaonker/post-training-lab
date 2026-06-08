@@ -47,15 +47,15 @@ structurally correct, and `sft_v2` is a clean anchor for Phase 2 DPO.
 
 ### Attempt 2 — `sft_v2` on pretrained `Qwen2.5-0.5B`
 
-- **Adapter:** `agaonker/atlas-sft-qwen05b-v2`
-- **Dataset:** UltraChat-200k `train_sft`, 5,000-row slice (`seed=42`)
-- **Trainer:** TRL `SFTTrainer` + LoRA r=16 + 4-bit QLoRA on Modal L4
-- **Steps:** 313 micro-batches × (batch=4 × grad_accum=4) = 5,008 samples = 1 epoch
-- **Training loss:** 1.479 → 1.382 (clean, no NaN, grad_norm bounded)
-- **Mean assistant-token accuracy:** 0.6296 → 0.6538 (the mask is real and learning)
-- **Config hash:** `b133712d` (different from base hash `fde0720e` because
-  `cfg.model.tokenizer_name` is set for sft_v2 eval — same fingerprint
-  semantics, just different tokenizer source)
+Hyperparameters: [`configs/sft_qwen05b.yaml`](../configs/sft_qwen05b.yaml).
+Training code: [`src/atlas/train/sft.py`](../src/atlas/train/sft.py).
+
+Run output: adapter `agaonker/atlas-sft-qwen05b-v2`, 313 micro-batches
+(= 5,008 samples = 1 epoch), training loss **1.479 → 1.382** (clean, no NaN,
+grad_norm bounded), mean assistant-token accuracy **0.6296 → 0.6538** (the
+mask is real and learning). `config_hash: b133712d` differs from the base's
+`fde0720e` because `cfg.model.tokenizer_name` is set at eval time — same
+fingerprint semantics, just different tokenizer source.
 
 ## Results
 
