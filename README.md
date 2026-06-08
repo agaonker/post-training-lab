@@ -48,55 +48,15 @@ the first policy in this lab to clear that bar. The Phase 2 *formal* success cri
 (LLM-judge pairwise win-rate) is gated on Phase 6 and not yet measured. See
 [`experiments/003_dpo_qwen05b.md`](experiments/003_dpo_qwen05b.md).
 
-## Mistakes, dead-ends, and learnings
+## Learnings
 
-This lab is partly *about* getting these right, so they're documented as they're caught:
+- Pretrained base, not `-Instruct` — re-SFT-ing aligned weights regressed every eval.
+- `assistant_only_loss` defaults to `False` in TRL 1.4 — must set it explicitly.
+- Qwen2.5's chat template lacks `{% generation %}` markers — patch at load time.
+- Pretrained Qwen has `pad == eos` — load the `-Instruct` tokenizer (same vocab).
+- HF token preflight saves a wasted training run when the Modal secret stales out.
+- TRL 1.4 dropped `max_prompt_length` from `DPOConfig` — use `max_length` only.
+- Merge-then-DPO is the simplest QLoRA-DPO recipe; multi-adapter is more fragile.
+- Long Modal runs from a sandboxed shell drop heartbeat — run from your own terminal.
 
-- **First SFT attempt was on `Qwen2.5-0.5B-Instruct`** — already chat-tuned by Qwen.
-  Re-SFT-ing already-aligned weights regressed uniformly on every eval (−1 to −2.6pp).
-  Diagnosed in
-  [`writeups/sft_regression_diagnosis.html`](writeups/sft_regression_diagnosis.html);
-  pipeline rebuilt on pretrained `Qwen2.5-0.5B`. The historical `-Instruct` rows from
-  that attempt (`agaonker/atlas-sft-qwen05b-v1`) still live in
-  [`results/metrics.json`](results/metrics.json) for reference but are not the
-  active comparison.
-- **`assistant_only_loss` defaults to `False`** in TRL 1.4 — without setting it, loss
-  was computed over user turns too. The 0.5B was learning to generate user questions.
-- **Qwen2.5's chat template doesn't ship `{% generation %}` markers** — required for
-  TRL's assistant-only mask. Patched at load time in
-  [`src/atlas/models/base.py`](src/atlas/models/base.py) via
-  `patch_chat_template_for_assistant_mask`.
-- **Pretrained `Qwen2.5-0.5B` has `pad == eos == <|endoftext|>`** — classic SFT
-  supervision footgun. Solved by loading the `-Instruct` tokenizer (same vocab; pad
-  and eos correctly distinct).
-- **An HF token that worked for `sft_v1` didn't work for `sft_v2`** — Modal secret had
-  a read-only token. The fail-fast preflight in
-  [`src/atlas/train/sft.py:_preflight_hub_access`](src/atlas/train/sft.py) caught it
-  in ~200ms instead of after ~45 min of training.
-- **`max_prompt_length` was removed from `DPOConfig` in TRL 1.4** — only `max_length`
-  governs the combined sequence now. The Modal smoke caught this in ~30s.
-- **`merge_and_unload` the SFT adapter into the base before attaching the DPO LoRA**
-  is the simplest reliable QLoRA-DPO recipe for TRL 1.4 — trades ~750 MB memory for
-  never having to think about multi-adapter `model_adapter_name`/`ref_adapter_name`.
-- **Long-running `modal run` from the sandboxed shell dropped the local heartbeat
-  multiple times** mid-eval (~30 min in). User-terminal launches via `! modal run …`
-  were reliable. Future long runs should prefer that.
-
-Full one-liner-per-finding list with dates and why-it-matters lines:
-[`LESSONS.md`](LESSONS.md). Live punch list of things to fix: [`TODOS.md`](TODOS.md).
-
-## Writeups
-
-One polished writeup per phase is the final deliverable per [`PROJECT.md`](PROJECT.md) §6;
-those land at the end of each phase and live in [`writeups/`](writeups/). In flight:
-
-- [`writeups/sft_regression_diagnosis.html`](writeups/sft_regression_diagnosis.html) —
-  full diagnosis of the `sft_v1` regression that drove the base swap.
-- Phase 1 polished writeup `writeups/01_sft_and_qlora.md` — pending.
-- Phase 2 polished writeup `writeups/02_dpo.md` — pending Phase 6 LLM-judge numbers.
-
-Per-experiment logs (hypothesis → config_hash → results → learnings) live in
-[`experiments/`](experiments/):
-
-- [`experiments/002_sft_qwen05b.md`](experiments/002_sft_qwen05b.md) — Phase 1 SFT.
-- [`experiments/003_dpo_qwen05b.md`](experiments/003_dpo_qwen05b.md) — Phase 2 DPO.
+Full list with dates: [`LESSONS.md`](LESSONS.md).
