@@ -134,12 +134,16 @@ def _build_policy_model(cfg: Config) -> Any:
     return policy.merge_and_unload()
 
 
-def _build_reward_model(cfg: Config) -> Any:
+def _build_reward_model(cfg: Config, tokenizer: Any) -> Any:
     """Load ``base + rm_v1`` as a separate SequenceClassification model.
 
     This is a second copy of the base on the GPU, in 4-bit to save memory.
     The RM adapter is attached as a PEFT model and *not* merged — the
     classification head's adapter weights stay live during scoring.
+
+    ``tokenizer`` is needed only to wire ``pad_token_id`` onto the RM's model
+    config — SequenceClassification heads can't batch-forward without it
+    ("Cannot handle batch sizes > 1 if no padding token is defined").
     """
     import torch
     from peft import PeftModel
@@ -175,6 +179,12 @@ def _build_reward_model(cfg: Config) -> Any:
         base_kwargs["quantization_config"] = rm_quant
     rm_base = AutoModelForSequenceClassification.from_pretrained(cfg.model.name, **base_kwargs)
 
+    # SequenceClassification forward needs pad_token_id to handle variable
+    # length sequences in a batch. The base.config doesn't ship it on the
+    # pretrained Qwen2.5-0.5B side, and PeftModel inherits the base's config.
+    if rm_base.config.pad_token_id is None:
+        rm_base.config.pad_token_id = tokenizer.pad_token_id
+
     rm_peft_kwargs: dict[str, Any] = {}
     if cfg.model.rm_adapter_revision is not None:
         rm_peft_kwargs["revision"] = cfg.model.rm_adapter_revision
@@ -201,7 +211,7 @@ def run_rloo(
     train_ds = _load_dataset(cfg)
     _, tokenizer = load_base_model_and_tokenizer(cfg)
     policy = _build_policy_model(cfg)
-    reward_model = _build_reward_model(cfg)
+    reward_model = _build_reward_model(cfg, tokenizer)
     lora_config = make_lora_config(cfg)
     train_config = _build_train_config(cfg, max_steps_override)
 
