@@ -109,12 +109,20 @@ def _preflight_hub_access(repo_id: str) -> None:
         ) from e
 
 
-def _build_policy_model(cfg: Config) -> Any:
+def _build_policy_model(cfg: Config, tokenizer: Any) -> Any:
     """Load base + fuse the SFT warm-start adapter, returning a merged HF model.
 
     Same merge-then-X recipe as DPO: load base in full precision, attach
     sft_v2, ``merge_and_unload``. ``RLOOTrainer`` then attaches a fresh LoRA
     via ``peft_config`` and disables it for the ref forward.
+
+    ``tokenizer`` is needed so we can align the merged model's
+    ``config.eos_token_id`` / ``pad_token_id`` to the Instruct tokenizer
+    sft_v2 was trained against. Without this, the policy generates
+    ``<|im_end|>`` (its trained eos) but ``generate()`` is still looking for
+    the *base*'s ``<|endoftext|>``, so rollouts run to max_completion_length
+    and all get masked out as truncated — zero gradient signal, classic RL
+    "didn't terminate" footgun.
     """
     from peft import PeftModel
 
@@ -131,7 +139,18 @@ def _build_policy_model(cfg: Config) -> Any:
     if cfg.model.sft_adapter_revision is not None:
         peft_kwargs["revision"] = cfg.model.sft_adapter_revision
     policy = PeftModel.from_pretrained(base, cfg.model.sft_adapter, **peft_kwargs)
-    return policy.merge_and_unload()
+    merged = policy.merge_and_unload()
+
+    if tokenizer.eos_token_id is not None:
+        merged.config.eos_token_id = tokenizer.eos_token_id
+        if merged.generation_config is not None:
+            merged.generation_config.eos_token_id = tokenizer.eos_token_id
+    if tokenizer.pad_token_id is not None:
+        merged.config.pad_token_id = tokenizer.pad_token_id
+        if merged.generation_config is not None:
+            merged.generation_config.pad_token_id = tokenizer.pad_token_id
+
+    return merged
 
 
 def _build_reward_model(cfg: Config, tokenizer: Any) -> Any:
@@ -210,7 +229,7 @@ def run_rloo(
 
     train_ds = _load_dataset(cfg)
     _, tokenizer = load_base_model_and_tokenizer(cfg)
-    policy = _build_policy_model(cfg)
+    policy = _build_policy_model(cfg, tokenizer)
     reward_model = _build_reward_model(cfg, tokenizer)
     lora_config = make_lora_config(cfg)
     train_config = _build_train_config(cfg, max_steps_override)
