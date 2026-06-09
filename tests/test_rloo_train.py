@@ -101,7 +101,7 @@ def test_build_train_config_passes_through_yaml_train_block(monkeypatch):
             "num_generations": 4,
             "epsilon": 0.2,
             "temperature": 0.7,
-            "max_length": 1024,
+            "max_completion_length": 512,
         }
     )
     rc = rloo._build_train_config(cfg, max_steps_override=None)
@@ -209,4 +209,7 @@ def test_rloo_qwen05b_yaml_loads_and_merges():
     assert td["epsilon"] == 0.2
     assert td["temperature"] == 0.7
     assert td["mask_truncated_completions"] is True
+    # RLOO uses max_completion_length (rollout length), not max_length
+    # (combined sequence) — TRL's RLOOConfig has the former, not the latter.
+    assert td["max_completion_length"] == 512
     assert cfg.train.output_dir == "outputs/rloo_qwen05b_v1"

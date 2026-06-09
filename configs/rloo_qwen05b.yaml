@@ -73,8 +73,11 @@ train:
   logging_steps: 10
   save_strategy: "no"
   report_to: wandb
-  # Cap concatenated sequence length to keep memory bounded.
-  max_length: 1024
+  # Cap rollout (completion) length. RLOO rollouts are completions only —
+  # the prompt is the fixed context — so this is the generated-tokens cap,
+  # not the combined sequence cap (DPO uses max_length for combined; RLOO
+  # uses max_completion_length for the generated portion).
+  max_completion_length: 512
 
 output:
   hub_repo: agaonker/atlas-rloo-qwen05b-v1
