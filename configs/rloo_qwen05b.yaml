@@ -1,0 +1,80 @@
+# Phase 3B: RLOO (REINFORCE Leave-One-Out) on Qwen2.5-0.5B.
+#
+# RLOO replaces PPO in our plan — TRL 1.4 deprecated PPOTrainer in favor of
+# RLOO and GRPO. RLOO uses the trained Reward Model (Phase 3A) to score
+# rollouts, with REINFORCE-style policy updates where multiple sibling
+# completions (k=num_generations) act as each other's baseline.
+#
+# Policy = pretrained base + sft_v2 (merged in) + a fresh trainable LoRA.
+# Reference = the same merged model with the new LoRA disabled (TRL handles
+# this automatically via the peft_config path).
+# Reward = base + rm_v1 adapter, loaded separately as a SequenceClassification
+# model and passed via reward_funcs.
+#
+# YAML float gotcha: always write 5.0e-6, not 5e-6 (PyYAML parses the dot-less
+# form as a string).
+
+model:
+  # Same tokenizer routing as Phases 1-2: Instruct vocab (correct eos +
+  # patched chat_template).
+  tokenizer_name: Qwen/Qwen2.5-0.5B-Instruct
+  # Warm-start the policy from the Phase 1 SFT adapter, merged into the base
+  # (same recipe as DPO). The fresh RLOO LoRA attaches on top; the reference
+  # policy is the merged sft_v2 (TRL disables the new LoRA for ref forward).
+  sft_adapter: agaonker/atlas-sft-qwen05b-v2
+  sft_adapter_revision: null
+  # Reward Model for scoring rollouts. Loaded separately from the policy as
+  # a SequenceClassification head + 4-bit quant; see src/atlas/train/rloo.py.
+  rm_adapter: agaonker/atlas-rm-qwen05b-v1
+  rm_adapter_revision: null
+
+quant:
+  # Disable 4-bit for the same reason DPO does: merge_and_unload needs
+  # full-precision weights. The reward model is loaded separately and stays
+  # in 4-bit for memory (see src/atlas/train/rloo.py).
+  load_in_4bit: false
+
+dataset:
+  name: HuggingFaceH4/ultrafeedback_binarized
+  split: train_prefs
+  revision: null
+  # 5k prompts matches sft_v2 / dpo_v1 / rm_v1 row counts. RLOO only consumes
+  # the prompts (not chosen/rejected) — see load_ultrafeedback_prompts.
+  n_samples: 5000
+
+train:
+  output_dir: outputs/rloo_qwen05b_v1
+  # Similar order to DPO (steep loss surface — RL gradients are high-variance).
+  learning_rate: 5.0e-6
+  num_train_epochs: 1
+  # RLOO samples num_generations completions per prompt and uses each as the
+  # others' baseline. 4 is the standard k for REINFORCE-leave-one-out.
+  num_generations: 4
+  # Smaller per-device batch because every step has k=4 rollouts to score
+  # through the policy + ref + reward. Effective batch matches sft_v2/dpo_v1.
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 8
+  # KL coefficient — lower than DPO's β=0.1 because RLOO already constrains
+  # via clipping. 0.05 is HF alignment-handbook's recommendation.
+  beta: 0.05
+  # PPO-style clip range, applied to the importance-sampling ratio.
+  epsilon: 0.2
+  # Sampling temperature for rollouts. 0.7 trades off exploration vs sample
+  # quality; the RM scores the resulting completions.
+  temperature: 0.7
+  # Mask completions that hit max_length — partial rollouts shouldn't be
+  # rewarded (or penalized) for content the model couldn't finish.
+  mask_truncated_completions: true
+  # Cap reward magnitudes to keep gradients bounded. The RM produced rewards
+  # in the 6-12 range during training; ±10 is generous.
+  reward_clip_range: 10.0
+  warmup_ratio: 0.03
+  gradient_checkpointing: true
+  logging_steps: 10
+  save_strategy: "no"
+  report_to: wandb
+  # Cap concatenated sequence length to keep memory bounded.
+  max_length: 1024
+
+output:
+  hub_repo: agaonker/atlas-rloo-qwen05b-v1

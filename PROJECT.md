@@ -311,11 +311,15 @@ Each phase has: goal, deliverable, success criterion. Skip none; resist scope cr
 - **Deliverable**: adapter on Hub; `writeups/02_dpo.md`; metrics row.
 - **Success**: DPO model has higher LLM-judge win rate vs SFT model on held-out prompts.
 
-### Phase 3 — RLHF: Reward Model + PPO (2 weekends)
+### Phase 3 — RLHF: Reward Model + RLOO (2 weekends)
 - **Weekend A**: train reward model, achieve ≥65% accuracy on held-out preference pairs.
-- **Weekend B**: PPO on the SFT policy with the RM. Stable training, KL stays bounded.
-- **Deliverable**: both adapters on Hub; `writeups/03_rlhf_ppo.md` including failure modes you hit.
-- **Success**: PPO model is competitive with DPO on win rate; writeup honestly compares operational complexity.
+- **Weekend B**: **RLOO** on the SFT policy with the RM. Stable training, KL stays bounded.
+- **Deliverable**: both adapters on Hub; `writeups/03_rlhf_rloo.md` including failure modes you hit.
+- **Success**: RLOO model is competitive with DPO on win rate; writeup honestly compares operational complexity.
+- **Note**: this phase was originally planned as PPO. TRL 1.4 deprecated `PPOTrainer`
+  upstream — only `RLOOTrainer` and `GRPOTrainer` remain in the modern RLHF surface.
+  This actually aligns with the field shift documented in §8 ("PPO-RLHF → DPO →
+  GRPO/RLVR"). See `LESSONS.md` for the discovery.
 
 ### Phase 4 — GRPO + RLVR on GSM8K (1–2 weekends)
 - **Goal**: GRPO on Qwen2.5-0.5B SFT using GSM8K with a numeric-answer verifier reward.

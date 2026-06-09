@@ -91,6 +91,22 @@ Group by category. Date each entry so stale ones are easy to retire.
   error against the cost of one wasted training run. Generalize this pattern
   before every paid run that *ends* with a Hub push. (2026-06-06)
 
+## TRL surface drift
+
+- **TRL 1.4 removed `PPOTrainer` / `PPOConfig`.** The modern RLHF surface in
+  TRL is `SFTTrainer` + `DPOTrainer` + `RewardTrainer` + `RLOOTrainer` +
+  `GRPOTrainer` + `KTOTrainer`. PPO is gone. This matches the field shift
+  PROJECT.md §8 describes ("PPO-RLHF → DPO → GRPO/RLVR"). For "RLHF with a
+  reward model" use `RLOOTrainer` (REINFORCE Leave-One-Out) — it's the
+  natural replacement: same RM-scored rollouts + KL penalty, simpler than
+  PPO (no value head, no separate critic). (2026-06-08)
+
+- **`RLOOTrainer` takes `reward_funcs=[rm_model]`, not `reward_model`.** Plural,
+  list of callables or models. Each can be an `AutoModelForSequenceClassification`
+  (a real reward model), a string path, or a Python callable. Mismatching this
+  signature against the docs (which sometimes still reference PPO) wastes a
+  smoke run. (2026-06-08)
+
 ## wandb / training callbacks
 
 - **A missing `WANDB_API_KEY` on a dev machine crashes `trainer.train()` mid-init.**

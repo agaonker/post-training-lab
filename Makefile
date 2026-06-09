@@ -17,7 +17,7 @@
 UV     ?= uv
 RUNNER ?= $(if $(and $(shell command -v uv 2>/dev/null),$(wildcard .venv)),uv run,)
 
-.PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke eval-modal-check eval-modal-probe eval-modal-shell eval-modal-smoke eval-modal eval-modal-sft sft sft-smoke sft-modal-smoke sft-modal dpo dpo-smoke dpo-modal-smoke dpo-modal rm rm-smoke rm-modal-smoke rm-modal docs-serve docs-build clean
+.PHONY: help install fmt lint typecheck test test-fast eval-baseline eval-smoke eval-modal-check eval-modal-probe eval-modal-shell eval-modal-smoke eval-modal eval-modal-sft sft sft-smoke sft-modal-smoke sft-modal dpo dpo-smoke dpo-modal-smoke dpo-modal rm rm-smoke rm-modal-smoke rm-modal rloo rloo-smoke rloo-modal-smoke rloo-modal docs-serve docs-build clean
 
 help:
 	@echo "Targets:"
@@ -49,6 +49,10 @@ help:
 	@echo "  rm-smoke       50-step local RM smoke (no Hub push); slow on Mac/CPU, fast on Linux GPU"
 	@echo "  rm-modal-smoke 50-step RM on Modal L4 (no Hub push), ~5 min, ~$$0.30 — pre-flight for rm-modal"
 	@echo "  rm-modal       Full RM on Modal L4, pushes adapter to HF Hub, ~30-45 min, ~$$1-2"
+	@echo "  rloo           Phase 3B: full RLOO run from configs/rloo_qwen05b.yaml; pushes adapter to HF Hub"
+	@echo "  rloo-smoke     50-step local RLOO smoke (no Hub push); slow on Mac/CPU"
+	@echo "  rloo-modal-smoke 50-step RLOO on Modal L4 (no Hub push), ~5-10 min, ~$$0.30"
+	@echo "  rloo-modal     Full RLOO on Modal L4, pushes adapter to HF Hub, ~45-90 min, ~$$2-4"
 	@echo "  docs-serve     mkdocs serve on http://127.0.0.1:8000 (live reload)"
 	@echo "  docs-build     mkdocs build --strict; mirrors what CI does before deploying to Pages"
 
@@ -202,6 +206,31 @@ rm-modal-smoke:
 # to cfg.output.hub_repo. ~30-45 min on L4, ~$1-2.
 rm-modal:
 	modal run src/atlas/cloud/rm_modal.py::main
+
+# Phase 3B deliverable: full RLOO run from configs/rloo_qwen05b.yaml. Loads
+# the sft_v2 + rm_v1 adapters, generates rollouts, REINFORCE-updates the
+# policy with the RM scoring + KL penalty against ref.
+rloo:
+	$(RUNNER) python -m atlas.train.rloo \
+	    --config configs/rloo_qwen05b.yaml
+
+# Local RLOO smoke: 50 steps, no Hub push. WANDB_MODE=disabled escape hatch.
+rloo-smoke:
+	WANDB_MODE=disabled $(RUNNER) python -m atlas.train.rloo \
+	    --config configs/rloo_qwen05b.yaml \
+	    --max-steps 50 \
+	    --no-push-to-hub
+
+# Modal RLOO smoke: 50 steps on L4, no Hub push. ~5-10 min, ~$0.30. Proves
+# the three-model setup (policy + ref-via-LoRA-toggle + RM) loads, rollouts
+# generate, rewards score, REINFORCE update lands.
+rloo-modal-smoke:
+	modal run src/atlas/cloud/rloo_modal.py::smoke
+
+# Modal full RLOO: per configs/rloo_qwen05b.yaml. ~45-90 min on L4 because
+# of generation-bound rollouts (no vLLM yet in the smoke config).
+rloo-modal:
+	modal run src/atlas/cloud/rloo_modal.py::main
 
 # Docs site (mkdocs-material → GitHub Pages). Install the [docs] extra first:
 #   uv sync --extra docs   (or pip install -e .[docs])

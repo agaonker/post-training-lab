@@ -44,6 +44,11 @@ class ModelCfg(BaseModel):
     # Optional revision SHA pin for the sft_adapter — keeps the comparison
     # reproducible across any future re-trains of the anchor. null = latest.
     sft_adapter_revision: str | None = None
+    # Optional reward-model adapter, used by Phase 3B (RLOO/PPO) to score
+    # rollouts. The trainer loads the same ``cfg.model.name`` base separately
+    # as a SequenceClassification model and attaches this adapter.
+    rm_adapter: str | None = None
+    rm_adapter_revision: str | None = None
 
 
 class QuantCfg(BaseModel):

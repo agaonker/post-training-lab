@@ -47,7 +47,7 @@ def load_ultrafeedback_prefs(
     seed: int = 42,
     revision: str | None = None,
 ) -> Dataset:
-    """Load a shuffled, capped slice of UltraFeedback-binarized for DPO.
+    """Load a shuffled, capped slice of UltraFeedback-binarized for DPO/RM.
 
     Args:
         n_samples: row cap; ``None`` uses the entire split (~62k pairs).
@@ -59,10 +59,42 @@ def load_ultrafeedback_prefs(
     Returns:
         ``Dataset`` with columns ``prompt`` / ``chosen`` / ``rejected``, each
         a list of role/content dicts — the conversational preference format
-        TRL's ``DPOTrainer`` expects when a chat template is in play.
+        TRL's ``DPOTrainer`` and ``RewardTrainer`` expect when a chat template
+        is in play.
     """
     ds = load_dataset(ULTRAFEEDBACK_REPO, split=ULTRAFEEDBACK_SPLIT, revision=revision)
     ds = ds.shuffle(seed=seed)
     if n_samples is not None:
         ds = ds.select(range(min(n_samples, len(ds))))
     return ds.map(_project_to_conversational, remove_columns=ds.column_names)
+
+
+def load_ultrafeedback_prompts(
+    n_samples: int | None = 5000,
+    seed: int = 42,
+    revision: str | None = None,
+) -> Dataset:
+    """Load a shuffled, capped slice of UltraFeedback prompts (no responses).
+
+    RLOO is online RL — it generates rollouts at training time and scores them
+    via the reward model, so it only needs *prompts*, not chosen/rejected.
+
+    Args:
+        n_samples: row cap; ``None`` uses the entire split.
+        seed: shuffle seed. Same convention as ``load_ultrafeedback_prefs``
+            so RM and RLOO can train on the *same* prompt distribution.
+        revision: dataset commit SHA on HF Hub.
+
+    Returns:
+        ``Dataset`` with a single ``prompt`` column — a list of role/content
+        dicts (conversational form) so TRL's ``RLOOTrainer`` can apply the
+        model's chat template and sample completions.
+    """
+    ds = load_dataset(ULTRAFEEDBACK_REPO, split=ULTRAFEEDBACK_SPLIT, revision=revision)
+    ds = ds.shuffle(seed=seed)
+    if n_samples is not None:
+        ds = ds.select(range(min(n_samples, len(ds))))
+    return ds.map(
+        lambda row: {"prompt": [{"role": "user", "content": row["prompt"]}]},
+        remove_columns=ds.column_names,
+    )
