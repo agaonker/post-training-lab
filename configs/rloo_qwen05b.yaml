@@ -62,9 +62,13 @@ train:
   # Sampling temperature for rollouts. 0.7 trades off exploration vs sample
   # quality; the RM scores the resulting completions.
   temperature: 0.7
-  # Mask completions that hit max_length — partial rollouts shouldn't be
-  # rewarded (or penalized) for content the model couldn't finish.
-  mask_truncated_completions: true
+  # Ideally we'd mask truncated rollouts so the RM can't reward partial
+  # content. But sft_v2 (5k UltraChat / 1 epoch) doesn't reliably emit
+  # <|im_end|>, so initially every rollout hit max_completion_length and
+  # was masked out — loss = 2e-7, grad_norm = 0, no learning. For now
+  # accept truncated rollouts (slight reward bias) in exchange for gradient
+  # flow. Revisit after sft_v3 or larger SFT data.
+  mask_truncated_completions: false
   # Clip reward magnitudes to keep gradients bounded. RLOO expects a [min, max]
   # pair, not a scalar. The RM produced rewards in the 6-12 range during
   # training; ±15 covers that with headroom for drift during RL.

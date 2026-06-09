@@ -208,7 +208,9 @@ def test_rloo_qwen05b_yaml_loads_and_merges():
     assert td["num_generations"] == 4
     assert td["epsilon"] == 0.2
     assert td["temperature"] == 0.7
-    assert td["mask_truncated_completions"] is True
+    # Currently False (gradient-flow workaround for sft_v2's weak eos
+    # emission); restore to True after sft_v3 or a stronger SFT recipe.
+    assert td["mask_truncated_completions"] is False
     # RLOO uses max_completion_length (rollout length), not max_length
     # (combined sequence) — TRL's RLOOConfig has the former, not the latter.
     assert td["max_completion_length"] == 512
