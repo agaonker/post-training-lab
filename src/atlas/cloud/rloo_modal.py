@@ -62,8 +62,12 @@ hf_cache = modal.Volume.from_name("atlas-hf-cache", create_if_missing=True)
     gpu=GPU,
     # Generous: covers cold model + dataset load + the full 5k-prompt run.
     # Smoke (50 steps) is ~5-10 min (longer than DPO because of rollouts);
-    # full run is ~45-90 min on L4.
-    timeout=60 * 60 * 3,
+    # full run measured ~3.2h on L4 (RLOO with num_generations=4 +
+    # max_completion_length=512 is rollout-bound, much slower per step than
+    # SFT/DPO/RM). 4h covers it with cushion. vLLM rollouts (use_vllm=True
+    # + vllm_mode="colocate") would cut this ~5-10x; deferred to a future
+    # optimization.
+    timeout=60 * 60 * 4,
     volumes={"/root/.cache/huggingface": hf_cache},
     secrets=[modal.Secret.from_name("hf-token")],
 )
