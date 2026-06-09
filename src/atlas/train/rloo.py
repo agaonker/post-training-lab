@@ -211,6 +211,11 @@ def run_rloo(
         args=train_config,
         train_dataset=train_ds,
         processing_class=tokenizer,
+        # RM and policy share the byte-identical Instruct vocab + the same
+        # patched chat_template, so the reward processing class is the same
+        # tokenizer instance. TRL still needs it passed explicitly — without
+        # it, the per-reward apply_chat_template call NoneType-errors.
+        reward_processing_classes=[tokenizer],
         peft_config=lora_config,
     )
 
