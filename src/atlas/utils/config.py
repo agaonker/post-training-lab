@@ -45,10 +45,14 @@ class ModelCfg(BaseModel):
     # reproducible across any future re-trains of the anchor. null = latest.
     sft_adapter_revision: str | None = None
     # Optional reward-model adapter, used by Phase 3B (RLOO/PPO) to score
-    # rollouts. The trainer loads the same ``cfg.model.name`` base separately
-    # as a SequenceClassification model and attaches this adapter.
+    # rollouts. The trainer loads ``rm_base`` (default ``name``) as a
+    # SequenceClassification model and attaches this adapter.
     rm_adapter: str | None = None
     rm_adapter_revision: str | None = None
+    # Optional base for the reward model — defaults to ``name`` when null.
+    # Set this when the policy and the RM start from different bases
+    # (e.g. Phase 3B with policy = -Instruct + RM = pretrained-base + rm_v1).
+    rm_base: str | None = None
 
 
 class QuantCfg(BaseModel):

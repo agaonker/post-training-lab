@@ -186,13 +186,15 @@ def test_preflight_hub_access_raises_on_create_repo_403(monkeypatch):
 def test_rloo_qwen05b_yaml_loads_and_merges():
     """End-to-end load of the Phase 3B YAML — catches typos that would crash mid-run."""
     cfg = load_config(CONFIGS / "rloo_qwen05b.yaml")
-    # Inherited from base.yaml
-    assert cfg.model.name == "Qwen/Qwen2.5-0.5B"
+    # Phase 3B pivots the policy base to Qwen's own -Instruct (sft_v2 was
+    # under-trained on 5k UltraChat and didn't reliably emit eos); the RM
+    # stays on the pretrained base it was trained against.
+    assert cfg.model.name == "Qwen/Qwen2.5-0.5B-Instruct"
     assert cfg.lora.r == 16
-    # Phase-3B overlay: tokenizer + SFT warm-start (merged) + RM adapter
-    assert cfg.model.tokenizer_name == "Qwen/Qwen2.5-0.5B-Instruct"
-    assert cfg.model.sft_adapter == "agaonker/atlas-sft-qwen05b-v2"
+    assert cfg.model.tokenizer_name is None  # -Instruct ships the right tokenizer
+    assert cfg.model.sft_adapter is None  # -Instruct *is* the SFT
     assert cfg.model.rm_adapter == "agaonker/atlas-rm-qwen05b-v1"
+    assert cfg.model.rm_base == "Qwen/Qwen2.5-0.5B"
     # 4-bit is deliberately off so sft_v2 can merge_and_unload (full
     # precision); the reward model is independently 4-bit'd in code.
     assert cfg.quant.load_in_4bit is False
@@ -210,7 +212,9 @@ def test_rloo_qwen05b_yaml_loads_and_merges():
     assert td["temperature"] == 0.7
     # Currently False (gradient-flow workaround for sft_v2's weak eos
     # emission); restore to True after sft_v3 or a stronger SFT recipe.
-    assert td["mask_truncated_completions"] is False
+    # Restored to True now that the policy is -Instruct (which terminates
+    # reliably). The False workaround was for sft_v2's weak eos behavior.
+    assert td["mask_truncated_completions"] is True
     # RLOO uses max_completion_length (rollout length), not max_length
     # (combined sequence) — TRL's RLOOConfig has the former, not the latter.
     assert td["max_completion_length"] == 512

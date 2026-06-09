@@ -15,18 +15,26 @@
 # form as a string).
 
 model:
-  # Same tokenizer routing as Phases 1-2: Instruct vocab (correct eos +
-  # patched chat_template).
-  tokenizer_name: Qwen/Qwen2.5-0.5B-Instruct
-  # Warm-start the policy from the Phase 1 SFT adapter, merged into the base
-  # (same recipe as DPO). The fresh RLOO LoRA attaches on top; the reference
-  # policy is the merged sft_v2 (TRL disables the new LoRA for ref forward).
-  sft_adapter: agaonker/atlas-sft-qwen05b-v2
+  # Phase 3B policy base: Qwen's own -Instruct, not the pretrained base. Our
+  # sft_v2 was under-trained on 5k UltraChat rows and didn't reliably emit
+  # <|im_end|> at greedy temperature (see writeups & experiments/004) — so
+  # 100% of RLOO rollouts hit max_completion_length. Bypassing sft_v2 in
+  # favor of Qwen's known-good Instruct checkpoint unblocks Phase 3B at the
+  # cost of comparison consistency: the methods table now has a footnote that
+  # RLOO is measured from a different anchor than DPO. See experiments/005.
+  name: Qwen/Qwen2.5-0.5B-Instruct
+  # No tokenizer override — -Instruct ships the correct eos / chat_template
+  # by default.
+  tokenizer_name: null
+  # No SFT adapter to merge — -Instruct *is* the SFT.
+  sft_adapter: null
   sft_adapter_revision: null
-  # Reward Model for scoring rollouts. Loaded separately from the policy as
-  # a SequenceClassification head + 4-bit quant; see src/atlas/train/rloo.py.
+  # Reward Model: stays on the pretrained base + rm_v1 adapter (the RM was
+  # trained against pretrained Qwen2.5-0.5B, not -Instruct). The vocab is
+  # byte-identical between the two so scoring works either way.
   rm_adapter: agaonker/atlas-rm-qwen05b-v1
   rm_adapter_revision: null
+  rm_base: Qwen/Qwen2.5-0.5B
 
 quant:
   # Disable 4-bit for the same reason DPO does: merge_and_unload needs
@@ -62,13 +70,11 @@ train:
   # Sampling temperature for rollouts. 0.7 trades off exploration vs sample
   # quality; the RM scores the resulting completions.
   temperature: 0.7
-  # Ideally we'd mask truncated rollouts so the RM can't reward partial
-  # content. But sft_v2 (5k UltraChat / 1 epoch) doesn't reliably emit
-  # <|im_end|>, so initially every rollout hit max_completion_length and
-  # was masked out — loss = 2e-7, grad_norm = 0, no learning. For now
-  # accept truncated rollouts (slight reward bias) in exchange for gradient
-  # flow. Revisit after sft_v3 or larger SFT data.
-  mask_truncated_completions: false
+  # Mask truncated rollouts so the RM can't reward partial content. With
+  # the policy now anchored to -Instruct (which terminates reliably), this
+  # should be the principled choice. Earlier we set it to false to work
+  # around sft_v2's weak eos behavior; that workaround is no longer needed.
+  mask_truncated_completions: true
   # Clip reward magnitudes to keep gradients bounded. RLOO expects a [min, max]
   # pair, not a scalar. The RM produced rewards in the 6-12 range during
   # training; ±15 covers that with headroom for drift during RL.

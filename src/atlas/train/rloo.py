@@ -126,20 +126,20 @@ def _build_policy_model(cfg: Config, tokenizer: Any) -> Any:
     """
     from peft import PeftModel
 
-    if cfg.model.sft_adapter is None:
-        raise ValueError(
-            "cfg.model.sft_adapter is required for RLOO — Phase 3B starts from "
-            "a Phase 1 SFT adapter. Set model.sft_adapter in your YAML."
-        )
-
     base, _ = load_base_model_and_tokenizer(cfg)
     del _  # tokenizer comes from a separate call
 
-    peft_kwargs: dict[str, Any] = {}
-    if cfg.model.sft_adapter_revision is not None:
-        peft_kwargs["revision"] = cfg.model.sft_adapter_revision
-    policy = PeftModel.from_pretrained(base, cfg.model.sft_adapter, **peft_kwargs)
-    merged = policy.merge_and_unload()
+    if cfg.model.sft_adapter is None:
+        # No SFT warm-start. Used by the "policy starts from a known-good SFT
+        # checkpoint (e.g. Qwen2.5-0.5B-Instruct)" pivot — see the
+        # configs/rloo_qwen05b.yaml model.name override + experiments/005.
+        merged = base
+    else:
+        peft_kwargs: dict[str, Any] = {}
+        if cfg.model.sft_adapter_revision is not None:
+            peft_kwargs["revision"] = cfg.model.sft_adapter_revision
+        policy = PeftModel.from_pretrained(base, cfg.model.sft_adapter, **peft_kwargs)
+        merged = policy.merge_and_unload()
 
     if tokenizer.eos_token_id is not None:
         merged.config.eos_token_id = tokenizer.eos_token_id
@@ -196,7 +196,11 @@ def _build_reward_model(cfg: Config, tokenizer: Any) -> Any:
         base_kwargs["revision"] = cfg.model.revision
     if rm_quant is not None:
         base_kwargs["quantization_config"] = rm_quant
-    rm_base = AutoModelForSequenceClassification.from_pretrained(cfg.model.name, **base_kwargs)
+    # The RM base may differ from the policy base — e.g. policy = -Instruct,
+    # RM = pretrained Qwen2.5-0.5B + rm_v1 LoRA (which was trained against the
+    # pretrained base). Default to cfg.model.name when rm_base is unset.
+    rm_base_name = cfg.model.rm_base or cfg.model.name
+    rm_base = AutoModelForSequenceClassification.from_pretrained(rm_base_name, **base_kwargs)
 
     # SequenceClassification forward needs pad_token_id to handle variable
     # length sequences in a batch. The base.config doesn't ship it on the
