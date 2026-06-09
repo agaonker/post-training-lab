@@ -65,9 +65,10 @@ train:
   # Mask completions that hit max_length — partial rollouts shouldn't be
   # rewarded (or penalized) for content the model couldn't finish.
   mask_truncated_completions: true
-  # Cap reward magnitudes to keep gradients bounded. The RM produced rewards
-  # in the 6-12 range during training; ±10 is generous.
-  reward_clip_range: 10.0
+  # Clip reward magnitudes to keep gradients bounded. RLOO expects a [min, max]
+  # pair, not a scalar. The RM produced rewards in the 6-12 range during
+  # training; ±15 covers that with headroom for drift during RL.
+  reward_clip_range: [-15.0, 15.0]
   warmup_ratio: 0.03
   gradient_checkpointing: true
   logging_steps: 10
